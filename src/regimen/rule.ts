@@ -22,6 +22,7 @@ import type { AttentionLevel, Finding } from "../core/types.ts";
 import { isLevel } from "../core/types.ts";
 import type { When } from "./predicate.ts";
 import { validateWhen } from "./predicate.ts";
+import { isValidReason, RESERVED_REASONS } from "./reasons.ts";
 
 export type RulePhase = "live" | "settled" | "both";
 
@@ -138,6 +139,15 @@ export function validatePack(pack: unknown): RuleIssue[] {
       }
       if (typeof emit.title !== "string" || emit.title.trim().length === 0) {
         issues.push({ ruleId: id, path: `${at}.emit.title`, message: "a rule needs a title" });
+      }
+      // The reason is the machine-readable key a report compares on, so it is a
+      // closed vocabulary: a reserved slug, or the rule's own namespace.
+      if (emit.reason !== undefined && !isValidReason(emit.reason)) {
+        issues.push({
+          ruleId: id,
+          path: `${at}.emit.reason`,
+          message: `expected a reserved reason (${RESERVED_REASONS.slice(0, 3).join(", ")}, …) or a namespaced one like "user.${id.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}"`,
+        });
       }
     }
 

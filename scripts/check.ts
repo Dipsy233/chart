@@ -12,6 +12,7 @@ const modules = [
   "../test/regimen.test.ts",
   "../test/defaults.test.ts",
   "../test/report.test.ts",
+  "../test/record.test.ts",
   "../test/store.test.ts",
   "../test/editor.test.ts",
 ];

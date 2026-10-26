@@ -34,12 +34,11 @@ import {
   dryRun,
   emptyRuleState,
   evaluate,
-  record as makeRecord,
   type Evaluation,
-  type FindingRecord,
   type RuleError,
   type RuleState,
 } from "./regimen/evaluate.ts";
+import { makeRecord, recordBody, type FindingRecord } from "./regimen/record.ts";
 import type { RulePack, RulePhase } from "./regimen/rule.ts";
 import { renderReport, renderText, type RenderContext } from "./report/render.ts";
 import { deriveOutcome, outcomeHeadline } from "./report/verdict.ts";
@@ -73,13 +72,28 @@ export {
   describeWhen,
   describeCondition,
   describeWindow,
+  describeSequence,
   anchorOf,
   OPERATOR_CATALOG,
   operatorsFor,
 } from "./regimen/predicate.ts";
 export type { WindowSpec, WindowSpan, WindowMeasure, WindowResult } from "./regimen/window.ts";
 export { runWindow, WINDOW_MEASURES, MAX_SCAN_EVENTS } from "./regimen/window.ts";
-export type { RuleState, RuleError, Evaluation, EvaluateOptions, FindingRecord } from "./regimen/evaluate.ts";
+export type { SequenceSpec, SequenceStep, SequenceGap, SequenceResult } from "./regimen/sequence.ts";
+export { runSequence, DEFAULT_MAX_GAP_EVENTS, DEFAULT_MAX_GAP_MS } from "./regimen/sequence.ts";
+export type { RuleState, RuleError, Evaluation, EvaluateOptions } from "./regimen/evaluate.ts";
+export type { FindingRecord, FindingRecordBody, ChainCheck } from "./regimen/record.ts";
+export { digestOf, canonicalJson, makeRecord, verifyChain } from "./regimen/record.ts";
+export type { ReservedReason } from "./regimen/reasons.ts";
+export {
+  RESERVED_REASONS,
+  REASON_LABELS,
+  isReservedReason,
+  isNamespacedReason,
+  isValidReason,
+  normalizeReason,
+  reasonFor,
+} from "./regimen/reasons.ts";
 export {
   evaluate,
   evaluateLive,
@@ -199,9 +213,27 @@ function judge(
  *
  * This is what a faithful replay reads. Call it when the judgement happens, not
  * later: the point of the record is that it captured the rules *then*.
+ *
+ * Pass the previous record of the session to seal the chain — `verifyChain`
+ * then proves nothing in the log was edited, reordered or removed.
  */
-export function record(observation: Observation, pack: RulePack): FindingRecord {
-  return makeRecord(observation, pack, observation.phase ?? "settled", observation.anchor);
+export function record(
+  observation: Observation,
+  pack: RulePack,
+  previous?: FindingRecord,
+): FindingRecord {
+  return makeRecord(
+    recordBody({
+      runId: observation.run.id,
+      phase: observation.phase ?? "settled",
+      anchor: observation.anchor,
+      findings: observation.findings,
+      attention: observation.attention,
+      errors: observation.errors,
+      pack,
+    }),
+    previous,
+  );
 }
 
 /* ── Replay ─────────────────────────────────────────────────────────────── */

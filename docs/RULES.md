@@ -96,7 +96,7 @@ relative to the array element. A missing path never matches a comparison.
 | `contains`, `notContains` | substring (string) or membership (array) |
 | `startsWith`, `endsWith` (+ `not*`) | string prefixes/suffixes |
 | `matches`, `notMatches` | RegExp, unanchored; pattern ≤ 256 chars, input ≤ 4 KiB |
-| `glob`, `notGlob` | `*` within a segment, `**` across, `?` one char; a bare pattern also matches the file name |
+| `glob`, `notGlob` | fnmatch: `*` within a segment, `**` across, `?` one char, `[abc]` / `[!abc]` a class, `\` escapes. A bare pattern also matches the file name. Works on any string, not just paths |
 | `exists`, `notExists` | the path resolves to something that is not null/undefined |
 | `empty`, `nonEmpty` | `""`, `[]`, `{}` / their negation |
 
@@ -151,8 +151,62 @@ being considered; a same-type event that fails `where` **breaks** the streak; a
 different type is ignored entirely. That is what "consecutive failures" means —
 one success in between ends the run.
 
-**Windows do not nest.** Sequence correlation ("A, then B within X") is a *fact*
-to be added to the fact layer, not a language feature. See `docs/DESIGN.md` §3.
+**Windows do not nest**, and neither does anything else: `sequence` below is the
+one ordering primitive, and `docs/DESIGN.md` §3 explains why the ladder stops
+there.
+
+### 4. Sequence — ordered steps with bounded gaps
+
+A count cannot see order: `facts.retries` says "this command failed three times"
+whether or not a success came in between. A sequence says it:
+
+```jsonc
+{ "sequence": {
+    "steps": [
+      { "type": ["command"], "where": { "conditions": [{ "field": "payload.exitCode", "op": "ne", "value": 0 }] }, "as": "failed" },
+      { "type": ["command"], "where": { "conditions": [{ "field": "payload.exitCode", "op": "eq", "value": 0 }] }, "as": "recovered" },
+      { "type": ["command"], "where": { "conditions": [{ "field": "payload.exitCode", "op": "ne", "value": 0 }] }, "as": "brokeAgain" }
+    ],
+    "gap": { "maxEvents": 30, "maxMs": 600000 },
+    "times": 1,
+    "span": { "lastMs": 3600000 }
+  } }
+```
+
+| Field | Meaning |
+|---|---|
+| `steps` | Two or more, **in order**. `type` narrows, `where` filters, `as` names the step for templates. |
+| `gap` | Bounds **between consecutive steps**: `maxEvents` (default 500) and `maxMs` (default 1 hour). |
+| `times` | How many non-overlapping matches to require. Default 1. |
+| `span.lastMs` | Only look this far back from the anchor. |
+
+**Gaps are not optional in practice.** An agent always puts a `thinking` or a
+`read` between two commands, so a strictly adjacent pattern would never match.
+That is why the default gap is wide, and why the editor asks for it explicitly.
+
+Matching is **leftmost, non-overlapping, and counted**, so the result is a number
+and a list of event ids — never a set of possible alignments. The bounds make it
+a bounded scan, not a search.
+
+Templates read the match:
+
+```
+{{vars.sequence.count}}                  how many matches
+{{vars.sequence.ids}}                    every event id used
+{{vars.sequence.step.failed.id}}         the first match's `failed` step
+{{vars.sequence.step.failed.timestamp}}
+```
+
+Evidence: `"evidence": ["sequence.ids"]` or `["sequence.step.brokeAgain"]`.
+
+**What it is for.** "The fix did not hold" — fail, recover, break again — is a
+sequence, not a fact. That distinction matters: a fact would have to be coded for
+every new pattern, while a sequence is data a user writes. `example.flapping` in
+`src/regimen/examples.ts` is exactly this rule.
+
+**What it is not.** It is not a regular expression over events: steps are a flat
+list, and a step's `where` may not contain a window, a sequence or a quantifier.
+The ladder stops here on purpose (`docs/DESIGN.md` §3).
 
 ### What a window can see
 
@@ -199,6 +253,27 @@ to be added to the fact layer, not a language feature. See `docs/DESIGN.md` §3.
 
 An unknown path renders empty; an unknown filter is a no-op. A template can
 never fail the run.
+
+## Reasons: a closed vocabulary
+
+A finding's `reason` is the machine-readable key — what a report shows, what the
+chime hook reads, what makes two runs comparable across pack versions. So it is
+**closed**:
+
+- a **reserved** slug, from Absence's own vocabulary: `command_failed`,
+  `unresolved_error`, `command_failure_streak`, `activity_stalled`,
+  `agent_stopped`, `process_left_running`, `outside_change`,
+  `file_version_loop`, `command_retry_loop`, `agent_waiting`, `no_progress`,
+  `external_change`;
+- or a **namespaced** slug: `user.flapping`, `my-pack.flapping` — at least one
+  dot, lower case, so it can never collide with a reserved name.
+
+A rule that names nothing gets its id, normalised: `run.agent-stopped` is already
+namespaced, and a bare `flap` becomes `custom.flap`. Validation rejects anything
+else, so a report never contains an unclassified key.
+
+`REASON_LABELS` carries a sentence for each reserved reason, for a UI that has to
+explain a verdict.
 
 ## Evidence
 

@@ -28,6 +28,7 @@
 import { compileGlob } from "../facts/glob.ts";
 import type { EvalContext } from "../core/types.ts";
 import { runWindow, WINDOW_MEASURES, type WindowResult, type WindowSpec } from "./window.ts";
+import { runSequence, type SequenceResult, type SequenceSpec } from "./sequence.ts";
 
 export type JsonValue =
   | string
@@ -110,7 +111,7 @@ export interface When {
   conditions: Condition[];
 }
 
-export type Condition = FieldCondition | QuantCondition | WindowCondition;
+export type Condition = FieldCondition | QuantCondition | WindowCondition | SequenceCondition;
 
 export interface FieldCondition {
   field: string;
@@ -128,6 +129,21 @@ export interface QuantCondition {
 
 export interface WindowCondition {
   window: WindowSpec;
+}
+
+/**
+ * An ordered pattern over the stream — the one thing a count cannot see.
+ *
+ *   { "sequence": {
+ *       "steps": [
+ *         { "type": ["command"], "where": { …failing… }, "as": "fail" },
+ *         { "type": ["command"], "where": { …ok… },      "as": "ok"   },
+ *         { "type": ["command"], "where": { …failing… }, "as": "fail2" }
+ *       ],
+ *       "gap": { "maxEvents": 20, "maxMs": 600000 } } }
+ */
+export interface SequenceCondition {
+  sequence: SequenceSpec;
 }
 
 /* ── Values ─────────────────────────────────────────────────────────────── */
@@ -314,6 +330,11 @@ export function evalCondition(condition: Condition, item: unknown, context?: Eva
     return windowFor(condition.window, context).matched;
   }
 
+  if ("sequence" in condition) {
+    if (!context) throw new Error("a sequence condition needs an evaluation context with `events`");
+    return sequenceFor(condition.sequence, context).matched;
+  }
+
   const actual = resolvePath(item, condition.field);
 
   if ("quant" in condition) {
@@ -335,6 +356,14 @@ export function evalCondition(condition: Condition, item: unknown, context?: Eva
   }
 
   return evalScalar(condition.op, actual, condition.value);
+}
+
+/** Run a sequence condition and keep the result (the evaluator wants the steps). */
+export function sequenceFor(spec: SequenceSpec, context: EvalContext): SequenceResult {
+  if (!context.events) throw new Error("a sequence condition needs `context.events` (the run's event stream)");
+  return runSequence(spec, context.events, anchorOf(context), {
+    matches: (when, element) => matches(when, element, context),
+  });
 }
 
 /** Run a window condition and keep the result (the evaluator wants the evidence). */
@@ -387,6 +416,13 @@ function validateCondition(condition: unknown, path: string, allowWindow: boolea
     return validateWindow(condition["window"], `${path}.window`);
   }
 
+  if ("sequence" in condition) {
+    if (!allowWindow) {
+      return [{ path, message: "a sequence is not allowed inside a where" }];
+    }
+    return validateSequence(condition["sequence"], `${path}.sequence`);
+  }
+
   if (typeof condition["field"] !== "string" || condition["field"].length === 0) {
     return [{ path: `${path}.field`, message: "expected a non-empty field path" }];
   }
@@ -404,10 +440,14 @@ function validateCondition(condition: unknown, path: string, allowWindow: boolea
     }
     if (condition["where"] !== undefined) {
       issues.push(...validateWhen(condition["where"], `${path}.where`));
-      // A where is field conditions only: no windows, no nested quantifiers.
+      // A where is field conditions only: no windows, no sequences, no nested
+      // quantifiers. That is what keeps the language flat.
       for (const nested of asConditions(condition["where"])) {
         if ("window" in nested) {
           issues.push({ path: `${path}.where`, message: "a window is not allowed inside a where" });
+        }
+        if ("sequence" in nested) {
+          issues.push({ path: `${path}.where`, message: "a sequence is not allowed inside a where" });
         }
         if ("quant" in nested) {
           issues.push({ path: `${path}.where`, message: "a quantifier is not allowed inside a where" });
@@ -489,6 +529,54 @@ function validateWindow(spec: unknown, path: string): PredicateIssue[] {
   return issues;
 }
 
+function validateSequence(spec: unknown, path: string): PredicateIssue[] {
+  if (!isPlainObject(spec)) return [{ path, message: "expected a sequence object" }];
+  const issues: PredicateIssue[] = [];
+  const steps = spec["steps"];
+  if (!Array.isArray(steps) || steps.length < 2) {
+    issues.push({ path: `${path}.steps`, message: "a sequence needs at least two steps" });
+  } else {
+    steps.forEach((step, index) => {
+      if (!isPlainObject(step)) {
+        issues.push({ path: `${path}.steps[${index}]`, message: "expected a step object" });
+        return;
+      }
+      if (step["where"] !== undefined) {
+        issues.push(...validateWhen(step["where"], `${path}.steps[${index}].where`));
+        for (const nested of asConditions(step["where"])) {
+          if ("window" in nested || "sequence" in nested) {
+            issues.push({ path: `${path}.steps[${index}].where`, message: "a where inside a step holds field conditions only" });
+          }
+        }
+      }
+    });
+  }
+  const gap = spec["gap"];
+  if (gap !== undefined) {
+    if (!isPlainObject(gap)) issues.push({ path: `${path}.gap`, message: "expected { maxEvents?, maxMs? }" });
+    else {
+      for (const key of ["maxEvents", "maxMs"] as const) {
+        const value = gap[key];
+        if (value !== undefined && !(typeof value === "number" && value >= 0)) {
+          issues.push({ path: `${path}.gap.${key}`, message: "expected a non-negative number" });
+        }
+      }
+    }
+  }
+  const times = spec["times"];
+  if (times !== undefined && !(typeof times === "number" && Number.isInteger(times) && times >= 1)) {
+    issues.push({ path: `${path}.times`, message: "expected a positive integer" });
+  }
+  const span = spec["span"];
+  if (span !== undefined) {
+    if (!isPlainObject(span)) issues.push({ path: `${path}.span`, message: "expected { lastMs? }" });
+    else if (span["lastMs"] !== undefined && !(typeof span["lastMs"] === "number" && span["lastMs"] >= 0)) {
+      issues.push({ path: `${path}.span.lastMs`, message: "expected a non-negative number of milliseconds" });
+    }
+  }
+  return issues;
+}
+
 /* ── Description (for the rule editor) ──────────────────────────────────── */
 
 const OP_WORDS: Record<ScalarOp, string> = {
@@ -525,6 +613,7 @@ export function describeWhen(when: When): string {
 
 export function describeCondition(condition: Condition): string {
   if ("window" in condition) return describeWindow(condition.window);
+  if ("sequence" in condition) return describeSequence(condition.sequence);
   const label = condition.field;
   if ("quant" in condition) {
     const where = condition.where ? ` that ${describeWhen(condition.where)}` : "";
@@ -552,6 +641,24 @@ export function describeWindow(spec: WindowSpec): string {
     /\s+/g,
     " ",
   );
+}
+
+export function describeSequence(spec: SequenceSpec): string {
+  const steps = spec.steps.map((step) => {
+    const types = step.type === undefined ? "event" : Array.isArray(step.type) ? step.type.join("/") : step.type;
+    const where = step.where ? `(${describeWhen(step.where)})` : "";
+    return `${types}${where}`;
+  });
+  const gapEvents = spec.gap?.maxEvents;
+  const gapMs = spec.gap?.maxMs;
+  const gap =
+    gapEvents === undefined && gapMs === undefined
+      ? ""
+      : ` within ${[gapEvents !== undefined ? `${gapEvents} events` : "", gapMs !== undefined ? `${gapMs}ms` : ""]
+          .filter(Boolean)
+          .join(" / ")}`;
+  const times = (spec.times ?? 1) > 1 ? ` ×${spec.times}` : "";
+  return `sequence ${steps.join(" → ")}${gap}${times}`;
 }
 
 function formatValue(value: JsonValue): string {

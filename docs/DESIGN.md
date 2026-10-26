@@ -80,11 +80,37 @@ Every window is measured against `anchor`. Chart never reads a clock:
 - **simulate**: the anchor is whatever the caller passes, so the answer is
   reproducible.
 
-What is still banned: nesting a window inside a window's `where`, and any
-construct whose answer depends on evaluation order. Sequence correlation ("A,
-then B within X") is a *fact* to be added to the fact layer — `facts.replays`,
-`facts.flaps` — not a language feature. That keeps the language at three leaf
-forms forever.
+### The ladder, and where it stops
+
+| Rung | Capability | Example | Cost | Status |
+|---|---|---|---|---|
+| 0 | aggregate | total failures | none | facts |
+| 1 | windowed measure | five failures in two minutes | one scan | `window` |
+| 2 | **bounded sequence** | failed → recovered → failed again, within 30 events | one *bounded* scan | `sequence` |
+| 3 | event-stream regex | `(fail ok)* fail`, quantifiers on groups | grammar, validation, UI and explanation all expand | rejected |
+| 4 | temporal logic | LTL, automata | no longer a rule a human reads | rejected |
+
+Rung 2 is the first rung where *order* matters, and it pays for itself: "the fix
+did not hold" is the most common thing a person wants to know about an agent,
+and it cannot be expressed by a count (a count cannot see the success in
+between) or by a window (a window has no order).
+
+Three guard rails keep it from becoming rung 3:
+
+1. **Steps are a flat list.** A step's `where` holds field conditions only — no
+   window, no sequence, no quantifier inside.
+2. **Every gap is bounded** (`maxEvents` + `maxMs`), so matching is a bounded
+   scan rather than a search.
+3. **Leftmost, non-overlapping, counted.** The answer is a number plus event ids,
+   never a set of possible alignments.
+
+The consequence worth stating: **"flapping" is a rule, not a fact.** If it were
+`facts.flaps`, every new pattern would need a code change — exactly the
+"pre-build every interface" trap this project exists to avoid.
+`example.flapping` is twelve lines of JSON.
+
+What is still banned: nesting a window inside a window's `where`, a sequence
+inside a `where`, and any construct whose answer depends on evaluation order.
 
 The fact layer also keeps the cheap aggregates (`facts.failureStreak`,
 `facts.retries`, `facts.reverts`) even though a window could compute them: they
@@ -140,6 +166,30 @@ another reason and turned out to be what makes a faithful replay possible at all
 
 `simulate` exists for exactly one purpose: the rule editor's "what would this
 have said?" button. It is a hypothetical, and the type system says so.
+
+### The record is a hash chain
+
+Because findings are recorded rather than recomputed, the record is the most
+attackable part of the system: if it can be edited quietly, every past report is
+a lie and nothing notices.
+
+So each record carries the digest of the previous one plus its own content
+(`src/regimen/record.ts`). Editing a record, reordering two, inserting a forged
+one or deleting one breaks the chain from that point, and `verifyChain` says
+where. Changing a verdict after the fact is caught by the same mechanism, because
+the verdict is part of the digested body.
+
+The strength is worth being honest about: a 128-bit non-cryptographic digest over
+canonical JSON. It detects corruption and casual tampering, not an attacker who
+can rewrite the whole log — that needs a keyed HMAC and a key the log cannot
+reach. The point is that silence stops being an option: a doctored report leaves
+a broken chain, and `packHash` names the pack that judged it.
+
+This is borrowed from the reference-monitor literature (`docs/PRIOR-ART.md`),
+where an append-only hash-chained audit log is the norm — and where the posture is
+the opposite of ours on one point: they *fail closed* on audit (no log, no
+action), while a rule engine must *fail open* (a broken rule must not hide the
+run). Chart keeps fail-open for rules and takes the chain for the record.
 
 ## 6. The three contracts
 

@@ -8,6 +8,7 @@
 import { EVENT_TYPES, allFields, eventFields, fieldFor } from "../../../src/editor/catalog.ts";
 import { operatorsForField } from "../../../src/editor/draft.ts";
 import { WINDOW_MEASURES, type WindowSpec } from "../../../src/regimen/window.ts";
+import type { SequenceSpec } from "../../../src/regimen/sequence.ts";
 import type { Condition, JsonValue, ScalarOp, When } from "../../../src/regimen/predicate.ts";
 import { ValueInput, isUnary } from "./ValueInput.tsx";
 
@@ -35,7 +36,7 @@ export function ConditionList({
     onChange({ ...when, conditions: when.conditions.filter((_, i) => i !== index) });
   };
 
-  const add = (kind: "field" | "quant" | "window") => {
+  const add = (kind: "field" | "quant" | "window" | "sequence") => {
     onChange({ ...when, conditions: [...when.conditions, blankCondition(kind)] });
   };
 
@@ -66,6 +67,9 @@ export function ConditionList({
             <button className="btn tiny" onClick={() => add("window")}>
               + window
             </button>
+            <button className="btn tiny" onClick={() => add("sequence")}>
+              + sequence
+            </button>
           </>
         )}
         {eventMode ? (
@@ -92,7 +96,19 @@ export function ConditionList({
   );
 }
 
-function blankCondition(kind: "field" | "quant" | "window"): Condition {
+function blankCondition(kind: "field" | "quant" | "window" | "sequence"): Condition {
+  if (kind === "sequence") {
+    return {
+      sequence: {
+        steps: [
+          { type: ["command"], where: { conditions: [{ field: "payload.exitCode", op: "ne", value: 0 }] }, as: "failed" },
+          { type: ["command"], where: { conditions: [{ field: "payload.exitCode", op: "eq", value: 0 }] }, as: "recovered" },
+          { type: ["command"], where: { conditions: [{ field: "payload.exitCode", op: "ne", value: 0 }] }, as: "brokeAgain" },
+        ],
+        gap: { maxEvents: 30, maxMs: 600_000 },
+      },
+    };
+  }
   if (kind === "window") {
     return {
       window: {
@@ -129,6 +145,10 @@ function ConditionRow({
 
   if ("quant" in condition) {
     return <QuantRow condition={condition} onChange={onChange} onRemove={onRemove} />;
+  }
+
+  if ("sequence" in condition) {
+    return <SequenceRow spec={condition.sequence} onChange={(sequence) => onChange({ sequence })} onRemove={onRemove} />;
   }
 
   return <FieldRow condition={condition} onChange={onChange} onRemove={onRemove} eventMode={eventMode} />;
@@ -314,6 +334,137 @@ function QuantRow({
       ) : (
         <div className="tiny muted">Pick an array field to filter its elements.</div>
       )}
+    </div>
+  );
+}
+
+/* ── sequence ────────────────────────────────────────────────────────────── */
+
+function SequenceRow({
+  spec,
+  onChange,
+  onRemove,
+}: {
+  spec: SequenceSpec;
+  onChange: (spec: SequenceSpec) => void;
+  onRemove: () => void;
+}) {
+  const gap = spec.gap ?? {};
+  return (
+    <div className="cond sequence" style={{ borderLeft: "2px solid rgba(232,169,74,.5)" }}>
+      <div className="cond-head">
+        <span className="kind">sequence · ordered steps</span>
+        <span className="spacer" />
+        <button className="btn tiny danger" onClick={onRemove}>
+          ✕
+        </button>
+      </div>
+
+      {spec.steps.map((step, index) => (
+        <div key={index} className="subrows">
+          <div className="row">
+            <span className="tiny muted" style={{ width: 46 }}>
+              step {index + 1}
+            </span>
+            <select
+              className="field"
+              style={{ width: 120 }}
+              value={Array.isArray(step.type) ? step.type[0] ?? "" : (step.type ?? "")}
+              onChange={(event) => {
+                const next = spec.steps.map((candidate, position) =>
+                  position === index
+                    ? { ...candidate, type: event.target.value ? [event.target.value] : undefined }
+                    : candidate,
+                );
+                onChange({ ...spec, steps: next });
+              }}
+            >
+              <option value="">any event</option>
+              {EVENT_TYPES.map((info) => (
+                <option key={info.type} value={info.type}>
+                  {info.label}
+                </option>
+              ))}
+            </select>
+            <input
+              className="field"
+              style={{ width: 90 }}
+              placeholder="label"
+              value={step.as ?? ""}
+              onChange={(event) =>
+                onChange({
+                  ...spec,
+                  steps: spec.steps.map((candidate, position) =>
+                    position === index ? { ...candidate, as: event.target.value || undefined } : candidate,
+                  ),
+                })
+              }
+            />
+            <span className="spacer" style={{ flex: 1 }} />
+            <button
+              className="btn tiny danger"
+              disabled={spec.steps.length <= 2}
+              onClick={() => onChange({ ...spec, steps: spec.steps.filter((_, position) => position !== index) })}
+            >
+              −
+            </button>
+          </div>
+          <ConditionList
+            when={step.where ?? { conditions: [] }}
+            eventMode
+            onChange={(where) =>
+              onChange({
+                ...spec,
+                steps: spec.steps.map((candidate, position) =>
+                  position === index
+                    ? { ...candidate, where: where.conditions.length > 0 ? where : undefined }
+                    : candidate,
+                ),
+              })
+            }
+          />
+        </div>
+      ))}
+
+      <div className="row">
+        <button
+          className="btn tiny"
+          onClick={() => onChange({ ...spec, steps: [...spec.steps, { type: ["command"] }] })}
+        >
+          + step
+        </button>
+        <span className="tiny muted" style={{ marginLeft: 10 }}>
+          gap ≤
+        </span>
+        <input
+          className="field"
+          type="number"
+          style={{ width: 70 }}
+          value={gap.maxEvents ?? 500}
+          onChange={(event) => onChange({ ...spec, gap: { ...gap, maxEvents: Number(event.target.value) } })}
+        />
+        <span className="tiny muted">events</span>
+        <input
+          className="field"
+          type="number"
+          style={{ width: 80 }}
+          value={Math.round((gap.maxMs ?? 3_600_000) / 1000)}
+          onChange={(event) =>
+            onChange({ ...spec, gap: { ...gap, maxMs: Number(event.target.value) * 1000 } })
+          }
+        />
+        <span className="tiny muted">seconds</span>
+        <span className="tiny muted" style={{ marginLeft: 10 }}>
+          times
+        </span>
+        <input
+          className="field"
+          type="number"
+          style={{ width: 60 }}
+          value={spec.times ?? 1}
+          onChange={(event) => onChange({ ...spec, times: Math.max(1, Number(event.target.value)) })}
+        />
+      </div>
     </div>
   );
 }

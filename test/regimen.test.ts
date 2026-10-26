@@ -10,6 +10,7 @@ import {
   type When,
 } from "../src/regimen/predicate.ts";
 import { runWindow } from "../src/regimen/window.ts";
+import { runSequence } from "../src/regimen/sequence.ts";
 import { renderTemplate, formatDuration, plural } from "../src/regimen/template.ts";
 import { evaluate, emptyRuleState } from "../src/regimen/evaluate.ts";
 import { hashPack, mergePacks, orderedRules, validatePack, type RulePack } from "../src/regimen/rule.ts";
@@ -18,6 +19,15 @@ import { factsOf, resetEventIds, session } from "./fixtures.ts";
 import type { ChartEvent } from "../src/core/events.ts";
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
+
+function throws(fn: () => unknown): boolean {
+  try {
+    fn();
+    return false;
+  } catch {
+    return true;
+  }
+}
 
 const ctx = {
   facts: {
@@ -519,7 +529,11 @@ section("evaluation");
   checkEqual("the level is the rule's", result.attention.level, "medium");
   check("the title is rendered", result.findings[0]?.title === "5 failed");
   check("evidence points at the failed commands", result.findings[0]?.evidence.length === 5);
-  checkEqual("the reason defaults to the rule id", result.findings[0]?.reason, "one");
+  checkEqual(
+    "a bare rule id is namespaced so the report vocabulary stays closed",
+    result.findings[0]?.reason,
+    "custom.one",
+  );
 }
 
 {
@@ -648,6 +662,234 @@ section("evaluation: determinism");
   check("the same inputs produce identical findings", a === b);
   const c = JSON.stringify(evaluate(DEFAULT_PACK, { facts, live: {}, events, anchor: 100_000 }));
   check("moving the anchor changes what a window sees", a !== c || facts.evidence.length < 1);
+}
+
+/* ── Sequences ──────────────────────────────────────────────────────────── */
+
+section("sequences: ordering a count cannot see");
+
+/** fail → success → fail, with `gap` thinking events between each step. */
+function flapEvents(gap = 1): ChartEvent[] {
+  resetEventIds();
+  const s = session();
+  s.agentStart();
+  s.command("npm test", 1);
+  for (let i = 0; i < gap; i++) s.thinking(`between ${i}`);
+  s.command("npm test", 0);
+  for (let i = 0; i < gap; i++) s.thinking(`again ${i}`);
+  s.command("npm test", 1);
+  s.agentEnd("completed");
+  return s.events;
+}
+
+const failStep = {
+  type: ["command"],
+  where: { conditions: [{ field: "payload.exitCode", op: "ne" as const, value: 0 }] },
+};
+const okStep = {
+  type: ["command"],
+  where: { conditions: [{ field: "payload.exitCode", op: "eq" as const, value: 0 }] },
+};
+
+function seqCtx(events: ChartEvent[], anchor: number) {
+  return { facts: factsOf(events), live: {}, events, anchor };
+}
+
+{
+  const events = flapEvents(1);
+  const anchor = events[events.length - 1]!.timestamp;
+  const spec = { steps: [failStep, okStep, failStep], gap: { maxEvents: 10 } };
+  check("a fail → ok → fail sequence matches", yes(one({ sequence: spec }), seqCtx(events, anchor)));
+
+  const result = runSequence(spec, events, anchor, { matches: (when, item) => matches(when, item) });
+  checkEqual("it reports one match", result.count, 1);
+  checkEqual("it uses three events", result.ids.length, 3);
+  check(
+    "the evidence is the three commands",
+    result.ids.every((id) => events.find((event) => event.id === id)?.type === "command"),
+  );
+}
+
+{
+  // A count cannot tell this apart from "two failures with a success after".
+  const events = flapEvents(1);
+  const context = seqCtx(events, events[events.length - 1]!.timestamp);
+  const failures = {
+    window: {
+      events: {
+        type: ["command"],
+        where: { conditions: [{ field: "payload.exitCode", op: "ne" as const, value: 0 }] },
+      },
+      measure: "count" as const,
+      op: "eq" as const,
+      value: 2,
+    },
+  };
+  check("a window counts the two failures", yes(one(failures), context));
+  check(
+    "but only the sequence sees the success between them",
+    yes(one({ sequence: { steps: [failStep, okStep, failStep] } }), context),
+  );
+  check(
+    "a different order does not match",
+    no(one({ sequence: { steps: [okStep, failStep, failStep] } }), context),
+  );
+}
+
+section("sequences: gaps");
+
+{
+  const events = flapEvents(10);
+  const context = seqCtx(events, events[events.length - 1]!.timestamp);
+  check(
+    "a wide event gap still matches",
+    yes(one({ sequence: { steps: [failStep, okStep, failStep], gap: { maxEvents: 12 } } }), context),
+  );
+  check(
+    "a narrow event gap does not",
+    no(one({ sequence: { steps: [failStep, okStep, failStep], gap: { maxEvents: 5 } } }), context),
+  );
+}
+
+{
+  // The fixture spaces events 1s apart, so a 60s gap is wide and 1s is not.
+  const events = flapEvents(1);
+  const context = seqCtx(events, events[events.length - 1]!.timestamp);
+  check(
+    "a 60s gap matches",
+    yes(one({ sequence: { steps: [failStep, okStep, failStep], gap: { maxMs: 60_000 } } }), context),
+  );
+  check(
+    "a 1s gap does not",
+    no(one({ sequence: { steps: [failStep, okStep, failStep], gap: { maxMs: 1_000 } } }), context),
+  );
+}
+
+section("sequences: repetition and bounds");
+
+{
+  // Two flaps in one run: `times: 2` needs both, `times: 3` cannot be met.
+  resetEventIds();
+  const s = session();
+  s.agentStart();
+  for (let round = 0; round < 2; round++) {
+    s.command("npm test", 1);
+    s.thinking("read it");
+    s.command("npm test", 0);
+    s.thinking("try again");
+    s.command("npm test", 1);
+    s.thinking("one more");
+  }
+  s.agentEnd("completed");
+  const events = s.events;
+  const context = seqCtx(events, events[events.length - 1]!.timestamp);
+  const steps = [failStep, okStep, failStep];
+  check("one flap matches", yes(one({ sequence: { steps } }), context));
+  check("two flaps match times: 2", yes(one({ sequence: { steps, times: 2 } }), context));
+  check("three do not", no(one({ sequence: { steps, times: 3 } }), context));
+}
+
+{
+  // The anchor bounds the scan: a sequence that ends after it never matches.
+  const events = flapEvents(1);
+  const context = seqCtx(events, events[2]!.timestamp);
+  check(
+    "an anchor before the sequence ends sees nothing",
+    no(one({ sequence: { steps: [failStep, okStep, failStep] } }), context),
+  );
+}
+
+{
+  const events = flapEvents(1);
+  const anchor = events[events.length - 1]!.timestamp;
+  check(
+    "a one-step sequence is refused at runtime",
+    throws(() => runSequence({ steps: [failStep] }, events, anchor, { matches: () => true })),
+  );
+}
+
+section("sequences: validation and description");
+
+{
+  check(
+    "a one-step sequence is reported",
+    validateWhen({ conditions: [{ sequence: { steps: [failStep] } }] }).some((issue) => issue.path.endsWith(".steps")),
+  );
+  check(
+    "a negative gap is reported",
+    validateWhen({ conditions: [{ sequence: { steps: [failStep, okStep], gap: { maxEvents: -1 } } }] }).some(
+      (issue) => issue.path.endsWith(".gap.maxEvents"),
+    ),
+  );
+  check(
+    "times must be a positive integer",
+    validateWhen({ conditions: [{ sequence: { steps: [failStep, okStep], times: 0 } }] }).some((issue) =>
+      issue.path.endsWith(".times"),
+    ),
+  );
+  check(
+    "a window inside a step is refused",
+    validateWhen({
+      conditions: [
+        {
+          sequence: {
+            steps: [
+              failStep,
+              { type: ["command"], where: { conditions: [{ window: { measure: "count", op: "gte", value: 1 } }] } },
+            ],
+          },
+        },
+      ],
+    }).some((issue) => issue.message.includes("field conditions only")),
+  );
+  check(
+    "a sequence inside a where is refused",
+    validateWhen({
+      conditions: [
+        { field: "facts.reverts", quant: "any", where: { conditions: [{ sequence: { steps: [failStep, okStep] } }] } },
+      ],
+    }).some((issue) => issue.message.includes("sequence is not allowed")),
+  );
+  check(
+    "the description reads as a pattern",
+    describeWhen({
+      conditions: [{ sequence: { steps: [failStep, okStep, failStep], gap: { maxEvents: 20, maxMs: 600_000 } } }],
+    }).includes("sequence command"),
+  );
+}
+
+section("sequences: evidence and templates");
+
+{
+  const events = flapEvents(1);
+  const facts = factsOf(events);
+  const pack: RulePack = {
+    version: 1,
+    rules: [
+      {
+        id: "flap",
+        when: one({
+          sequence: {
+            steps: [
+              { ...failStep, as: "failed" },
+              { ...okStep, as: "recovered" },
+              { ...failStep, as: "brokeAgain" },
+            ],
+            gap: { maxEvents: 10 },
+          },
+        }),
+        emit: {
+          level: "medium",
+          title: "{{vars.sequence.count}} flap · first {{vars.sequence.step.failed.id}}",
+          evidence: ["sequence.ids"],
+        },
+      },
+    ],
+  };
+  const result = evaluate(pack, { facts, live: {}, events, anchor: events[events.length - 1]!.timestamp });
+  checkEqual("the rule fires once", result.findings.length, 1);
+  check("the template reads the match", (result.findings[0]?.title ?? "").startsWith("1 flap · first evt_"));
+  checkEqual("the evidence is the three events", result.findings[0]?.evidence.length, 3);
 }
 
 finish();

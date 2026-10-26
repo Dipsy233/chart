@@ -34,6 +34,7 @@ import {
   serializePack,
   toChartEvents,
   validatePack,
+  describeSequence,
   type ChartEvent,
   type RulePack,
 } from "../src/index.ts";
@@ -164,6 +165,9 @@ function describeConditions(rule: RulePack["rules"][number]): string {
         const subject = Array.isArray(types) ? types.join("/") : (types ?? "any event");
         const span = spec.span?.lastMs !== undefined ? ` in ${spec.span.lastMs}ms` : "";
         return `${spec.measure} of ${subject}${span} ${spec.op} ${String(spec.value ?? "")}`;
+      }
+      if ("sequence" in condition) {
+        return describeSequence(condition.sequence);
       }
       if ("quant" in condition) {
         return `${condition.quant} ${condition.field} ${condition.op ?? ""} ${String(condition.value ?? "")}`.trim();

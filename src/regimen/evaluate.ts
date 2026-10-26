@@ -19,11 +19,13 @@
 import type { Attention, AttentionLevel, EvalContext, Finding } from "../core/types.ts";
 import { LEVEL_RANK, maxLevel } from "../core/types.ts";
 import { withLive } from "../core/live.ts";
-import { anchorOf, matches, resolvePath, windowFor, type Condition } from "./predicate.ts";
+import { anchorOf, matches, resolvePath, sequenceFor, windowFor, type Condition } from "./predicate.ts";
 import type { WindowResult } from "./window.ts";
+import type { SequenceResult } from "./sequence.ts";
 import type { Rule, RulePack, RulePhase } from "./rule.ts";
 import { appliesInPhase, hashPack, orderedRules } from "./rule.ts";
 import { renderTemplate } from "./template.ts";
+import { normalizeReason } from "./reasons.ts";
 
 /** State a caller keeps between live evaluations. Owned by the caller, not the module. */
 export interface RuleState {
@@ -75,10 +77,12 @@ export function evaluate(pack: RulePack, context: EvalContext, options: Evaluate
   for (const rule of orderedRules(pack, options.phase)) {
     if (rule.emit.level === "none") continue; // "silent" = the rule is off
     try {
-      // The rule's conditions are flat, so the only windows to collect are the
-      // ones directly in `when`. A `where` filter may not contain a window.
+      // The rule's conditions are flat, so the only windows and sequences to
+      // collect are the ones directly in `when`. A `where` filter may contain
+      // neither.
       const windows: WindowResult[] = [];
-      const ok = matchesWhen(rule.when.conditions, rule.when.combinator ?? "all", enriched, windows);
+      const sequences: SequenceResult[] = [];
+      const ok = matchesWhen(rule.when.conditions, rule.when.combinator ?? "all", enriched, windows, sequences);
       if (!ok) continue;
 
       const cooldown = rule.cooldownMs ?? 0;
@@ -87,7 +91,7 @@ export function evaluate(pack: RulePack, context: EvalContext, options: Evaluate
         if (last !== undefined && clock - last < cooldown) continue;
       }
 
-      const finding = buildFinding(rule, enriched, clock, windows);
+      const finding = buildFinding(rule, enriched, clock, windows, sequences);
       if (!finding) continue;
 
       findings.push(finding);
@@ -134,10 +138,11 @@ function matchesWhen(
   combinator: "all" | "any",
   context: EvalContext,
   windows: WindowResult[],
+  sequences: SequenceResult[],
 ): boolean {
   let any = false;
   for (const condition of conditions) {
-    const ok = conditionOk(condition, context, windows);
+    const ok = conditionOk(condition, context, windows, sequences);
     if (combinator === "any") {
       if (ok) any = true;
     } else if (!ok) {
@@ -147,10 +152,20 @@ function matchesWhen(
   return combinator === "any" ? any : true;
 }
 
-function conditionOk(condition: Condition, context: EvalContext, windows: WindowResult[]): boolean {
+function conditionOk(
+  condition: Condition,
+  context: EvalContext,
+  windows: WindowResult[],
+  sequences: SequenceResult[],
+): boolean {
   if ("window" in condition) {
     const result = windowFor(condition.window, context);
     windows.push(result);
+    return result.matched;
+  }
+  if ("sequence" in condition) {
+    const result = sequenceFor(condition.sequence, context);
+    sequences.push(result);
     return result.matched;
   }
   return matches({ conditions: [condition] }, context, context);
@@ -161,15 +176,17 @@ function buildFinding(
   context: EvalContext,
   clock: number,
   windows: WindowResult[],
+  sequences: SequenceResult[],
 ): Finding | undefined {
   const level: AttentionLevel = rule.emit.level;
-  const evidence = collectEvidence(rule.emit.evidence, context, windows);
+  const evidence = collectEvidence(rule.emit.evidence, context, windows, sequences);
   const vars = {
     evidence: evidence.length,
     rule: { id: rule.id, name: rule.name ?? rule.id },
     // Window numbers are addressable as `window.count`, `window.streak`, …
     // and `window.ids` for the events.
     window: windowVars(windows),
+    sequence: sequenceVars(sequences),
   };
   const templateContext = {
     facts: context.facts,
@@ -182,7 +199,7 @@ function buildFinding(
 
   return {
     ruleId: rule.id,
-    reason: rule.emit.reason ?? rule.id,
+    reason: normalizeReason(rule.emit.reason ?? rule.id),
     level,
     title: title || rule.name || rule.id,
     ...(detail ? { detail } : {}),
@@ -226,11 +243,28 @@ function windowVars(windows: WindowResult[]): Record<string, unknown> {
   return out;
 }
 
+/**
+ * The values a template may read from the sequences a rule ran.
+ * `{{vars.sequence.count}}`, `{{vars.sequence.step.fail.id}}`.
+ */
+function sequenceVars(sequences: SequenceResult[]): Record<string, unknown> {
+  const first = sequences[0];
+  return {
+    ids: sequences.flatMap((result) => result.ids),
+    count: sequences.reduce((sum, result) => sum + result.count, 0),
+    matched: sequences.some((result) => result.matched),
+    step: first?.step ?? {},
+    firstAt: first?.firstAt,
+    lastAt: first?.lastAt,
+  };
+}
+
 /** Flatten the evidence a rule asked for into event ids. */
 function collectEvidence(
   paths: string[] | undefined,
   context: EvalContext,
   windows: WindowResult[],
+  sequences: SequenceResult[],
 ): string[] {
   const out = new Set<string>();
   const take = (value: unknown): void => {
@@ -249,6 +283,20 @@ function collectEvidence(
   };
 
   for (const path of paths ?? ["facts.evidence"]) {
+    if (path.startsWith("sequence.")) {
+      const rest = path.slice("sequence.".length);
+      if (rest === "ids" || rest === "") {
+        for (const result of sequences) for (const id of result.ids) out.add(id);
+        continue;
+      }
+      // `sequence.step.<name>` → that step's event id in the first match.
+      const named = rest.match(/^step\.([^.]+)$/);
+      if (named) {
+        const id = sequences[0]?.step[named[1]!]?.id;
+        if (id) out.add(id);
+      }
+      continue;
+    }
     if (path.startsWith("window.")) {
       const rest = path.slice("window.".length);
       if (rest === "ids" || rest === "") {
@@ -306,41 +354,9 @@ export function findingsAtLeast(findings: Finding[], minLevel: AttentionLevel): 
 /* ── The record ─────────────────────────────────────────────────────────── */
 
 /**
- * What was judged, and by whom. This is what a faithful replay reads.
- *
- * Findings are recorded rather than recomputed on purpose: rules change, and a
- * report of a past run must show what was reported *then*. `packHash` names the
- * exact pack that judged it, so "why did this say high?" is always answerable.
+ * Records live in `record.ts` — they carry a hash chain, which is a concern of
+ * its own. Re-exported here so `regimen/evaluate` stays the one place a caller
+ * looks for "what came out of an evaluation".
  */
-export interface FindingRecord {
-  runId: string;
-  phase: RulePhase;
-  /** Content hash of the pack that produced these findings. */
-  packHash: string;
-  packName?: string;
-  /** The clock the judgement was anchored to. */
-  anchor: number;
-  findings: Finding[];
-  attention: Attention;
-  errors: RuleError[];
-}
-
-/** Turn an evaluation into a record to persist next to the events. */
-export function record(observation: {
-  run: { id: string };
-  facts: { lastActivityAt: number; run: { endedAt?: number } };
-  attention: Attention;
-  findings: Finding[];
-  errors: RuleError[];
-}, pack: RulePack, phase: RulePhase, anchor: number): FindingRecord {
-  return {
-    runId: observation.run.id,
-    phase,
-    packHash: hashPack(pack),
-    ...(pack.name ? { packName: pack.name } : {}),
-    anchor,
-    findings: observation.findings,
-    attention: observation.attention,
-    errors: observation.errors,
-  };
-}
+export type { FindingRecord, FindingRecordBody, ChainCheck } from "./record.ts";
+export { digestOf, canonicalJson, makeRecord, verifyChain, recordBody } from "./record.ts";

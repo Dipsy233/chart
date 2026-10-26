@@ -1,5 +1,6 @@
 import { check, checkEqual, finish, section } from "./harness.ts";
 import { deriveRuns, pickRun } from "../src/facts/runs.ts";
+import { matchGlob } from "../src/facts/glob.ts";
 import { factsOf, resetEventIds, session } from "./fixtures.ts";
 
 section("runs");
@@ -265,6 +266,24 @@ section("facts: determinism");
   const first = JSON.stringify(factsOf(build()));
   const second = JSON.stringify(factsOf(build()));
   check("the same stream produces byte-identical facts", first === second);
+}
+
+section("globs: fnmatch");
+
+{
+  // The same matcher serves paths and arbitrary strings, so it carries the
+  // fnmatch features a rule like `mcp__filesystem__*` needs.
+  check("a star stays inside a segment", matchGlob("src/*.ts", "src/a.ts") && !matchGlob("src/*.ts", "src/x/a.ts"));
+  check("a double star crosses segments", matchGlob("src/**/a.ts", "src/x/y/a.ts"));
+  check("a bare pattern matches the file name", matchGlob("*.log", "deep/dir/app.log"));
+  check("a question mark is one character", matchGlob("a?c", "abc") && !matchGlob("a?c", "ac"));
+  check("a character class matches", matchGlob("npm [run] *", "npm r test"));
+  check("a negated class matches", matchGlob("[!a]bc", "xbc") && !matchGlob("[!a]bc", "abc"));
+  check("a class range matches", matchGlob("v[0-9]", "v7") && !matchGlob("v[0-9]", "vx"));
+  check("a literal ] in a class is a member", matchGlob("a[]]b", "a]b"));
+  check("a backslash escapes a star", matchGlob("a\\*b", "a*b") && !matchGlob("a\\*b", "axb"));
+  check("an unterminated class is literal", matchGlob("a[b", "a[b"));
+  check("a glob over a tool name", matchGlob("mcp__filesystem__*", "mcp__filesystem__read_file"));
 }
 
 finish();

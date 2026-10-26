@@ -133,41 +133,44 @@ export const EXAMPLE_PACK: RulePack = {
     },
     {
       id: "example.flapping",
-      name: "A failure that a later success did not really fix",
+      name: "The fix did not hold",
       description:
-        "Same command fails, then succeeds, then fails again inside ten minutes: the fix is unstable, not done.",
+        "The same command failed, then succeeded, then failed again inside ten minutes: a sequence a count cannot see, because a count cannot notice the success in between. This is what `sequence` is for — and why \"flapping\" is a rule, not a fact the engine has to know about.",
       source: "user",
       phase: "settled",
       when: {
         conditions: [
           {
-            window: {
-              events: {
-                type: ["command"],
-                where: { conditions: [{ field: "payload.exitCode", op: "ne", value: 0 }] },
-              },
-              measure: "count",
-              op: "gte",
-              value: 2,
-            },
-          },
-          { field: "facts.recoveries", quant: "count", op: "gte", value: 2 },
-          {
-            window: {
-              events: { type: ["command"] },
-              measure: "gapMs",
-              op: "lte",
-              value: 600_000,
+            sequence: {
+              steps: [
+                {
+                  type: ["command"],
+                  where: { conditions: [{ field: "payload.exitCode", op: "ne", value: 0 }] },
+                  as: "failed",
+                },
+                {
+                  type: ["command"],
+                  where: { conditions: [{ field: "payload.exitCode", op: "eq", value: 0 }] },
+                  as: "recovered",
+                },
+                {
+                  type: ["command"],
+                  where: { conditions: [{ field: "payload.exitCode", op: "ne", value: 0 }] },
+                  as: "brokeAgain",
+                },
+              ],
+              gap: { maxEvents: 30, maxMs: 600_000 },
             },
           },
         ],
       },
       emit: {
         level: "medium",
-        title: "The same failure came back after a success",
-        detail: "It failed, recovered, then failed again within ten minutes: the fix did not hold.",
+        title: "A failure came back after a success",
+        detail:
+          "Failed, recovered, then failed again within ten minutes and thirty events: the fix did not hold.",
         tags: ["commands", "loop"],
-        evidence: ["window.ids"],
+        evidence: ["sequence.ids"],
       },
     },
     {

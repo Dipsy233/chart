@@ -1,0 +1,30 @@
+{
+  "name": "chart",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Chart \u2014 a zero-intrusion observation engine for AI agents. Regimen is its rule engine.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./store/fs": "./src/store/fs.ts",
+    "./editor": "./src/editor/draft.ts",
+    "./catalog": "./src/editor/catalog.ts"
+  },
+  "scripts": {
+    "check": "tsx scripts/check.ts",
+    "demo": "tsx scripts/demo.ts",
+    "typecheck": "tsc --noEmit",
+    "rules": "tsx scripts/chart.ts",
+    "web": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build",
+    "web:install": "npm --prefix web install"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "bin": {
+    "chart": "./scripts/chart.ts"
+  }
+}

@@ -30,12 +30,12 @@ const stillWorking = (): Rule["when"]["conditions"] => [
 
 export const DEFAULT_PACK: RulePack = {
   version: 1,
-  name: "Chart defaults",
+  name: "内置默认规则",
   rules: [
     {
       id: "run.agent-stopped",
-      name: "Agent stopped with an error",
-      description: "The run ended in error rather than finishing its task.",
+      name: "代理带着错误停止",
+      description: "这一轮没有跑完，以错误状态结束。",
       source: "default",
       phase: "settled",
       when: {
@@ -47,16 +47,15 @@ export const DEFAULT_PACK: RulePack = {
       emit: {
         reason: "agent_stopped",
         level: "high",
-        title: "The agent stopped with an error",
-        detail: "A run that dies outright is never ordinary; read the last command and the agent's reply.",
+        title: "代理带着错误停止了",
+        detail: "直接崩掉的运行从来不是小事：看最后一条命令和代理的回复。",
         tags: ["run", "failure"],
       },
     },
     {
       id: "run.unresolved-error",
-      name: "Unresolved error at rest",
-      description:
-        "A failure nothing recovered from, on a run that has settled or is visibly waiting for the user.",
+      name: "未恢复的失败(已结束)",
+      description: "运行结束后，仍有失败没有任何成功命令或修改把它补救回来。",
       source: "default",
       phase: "settled",
       priority: 10,
@@ -69,16 +68,16 @@ export const DEFAULT_PACK: RulePack = {
       emit: {
         reason: "unresolved_error",
         level: "high",
-        title: "{{facts.unresolved|plural:failure}} with no recovery",
-        detail: "No later command succeeded and nothing was edited after the failure.",
+        title: "{{facts.unresolved|count}} 个失败没有得到恢复",
+        detail: "失败之后既没有成功的命令，也没有任何文件被修改。",
         tags: ["failure"],
         evidence: ["facts.unresolved"],
       },
     },
     {
       id: "run.unresolved-error-while-waiting",
-      name: "Unresolved error while the agent waits",
-      description: "The same verdict, for a live run whose agent is blocked on the user.",
+      name: "未恢复的失败(等待用户)",
+      description: "同样的判断，用于运行还在进行、但代理已经停下来等用户的时刻。",
       source: "default",
       phase: "live",
       priority: 10,
@@ -91,16 +90,16 @@ export const DEFAULT_PACK: RulePack = {
       emit: {
         reason: "unresolved_error",
         level: "high",
-        title: "{{facts.unresolved|plural:failure}} with no recovery",
-        detail: "No later command succeeded and nothing was edited after the failure.",
+        title: "{{facts.unresolved|count}} 个失败没有得到恢复",
+        detail: "失败之后既没有成功的命令，也没有任何文件被修改。",
         tags: ["failure"],
         evidence: ["facts.unresolved"],
       },
     },
     {
       id: "run.commands-failed-recovered",
-      name: "Failed commands, all recovered",
-      description: "Five or more failures, but every one of them was followed by success or an edit.",
+      name: "失败命令(全部已恢复)",
+      description: "失败达到 5 次以上，但每一次之后都有成功命令或修改把它补了回来。",
       source: "default",
       phase: "settled",
       when: {
@@ -112,15 +111,15 @@ export const DEFAULT_PACK: RulePack = {
       emit: {
         reason: "command_failed",
         level: "low",
-        title: "{{facts.commands.failed|plural:command}} failed in this run",
+        title: "这一轮有 {{facts.commands.failed}} 条命令失败",
         tags: ["commands"],
         evidence: ["facts.failed"],
       },
     },
     {
       id: "run.commands-failed-midrun",
-      name: "Failed commands over the threshold, mid-run",
-      description: "The live half of the count rule: over the bar while the agent is still working.",
+      name: "失败命令超过阈值(进行中)",
+      description: "计数规则的进行中版本：代理还在干活，失败数已经超过阈值。",
       source: "default",
       phase: "live",
       when: {
@@ -133,16 +132,15 @@ export const DEFAULT_PACK: RulePack = {
       emit: {
         reason: "command_failed",
         level: "low",
-        title: "{{facts.commands.failed|plural:command}} failed so far",
+        title: "到目前为止已有 {{facts.commands.failed}} 条命令失败",
         tags: ["commands"],
         evidence: ["facts.failed"],
       },
     },
     {
       id: "run.error-event",
-      name: "A bare error event",
-      description:
-        "An `error` event with no failed command behind it — the weaker signal, capped at medium by default.",
+      name: "孤立的错误事件",
+      description: "出现了 error 事件，但背后没有失败命令 —— 较弱的信号，默认只给「警告」。",
       source: "default",
       phase: "settled",
       when: {
@@ -155,17 +153,16 @@ export const DEFAULT_PACK: RulePack = {
       emit: {
         reason: "unresolved_error",
         level: "medium",
-        title: "{{facts.errors.total|plural:error}} with no failed command behind {{facts.errors.total|bool:it,them}}",
-        detail: "Capped at medium: a bare error event is the weaker of the two failure signals.",
+        title: "{{facts.errors.total}} 个错误事件，背后没有失败命令",
+        detail: "上限是「警告」:孤立的 error 事件比失败命令弱一档。",
         tags: ["failure"],
         evidence: ["facts.errors.evidence"],
       },
     },
     {
       id: "run.failure-streak",
-      name: "Back-to-back failures",
-      description:
-        "Three commands failed in a row with no success between them: the agent may be flailing. Judged in both phases.",
+      name: "命令连续失败",
+      description: "连续三条命令失败，中间没有一次成功：代理可能在反复碰壁。进行中和结束后都判读。",
       source: "default",
       phase: "both",
       when: {
@@ -174,16 +171,15 @@ export const DEFAULT_PACK: RulePack = {
       emit: {
         reason: "command_failure_streak",
         level: "medium",
-        title: "{{facts.failureStreak.count}} commands failed back to back",
+        title: "连续 {{facts.failureStreak.count}} 条命令失败",
         tags: ["commands", "loop"],
         evidence: ["facts.failureStreak.evidence"],
       },
     },
     {
       id: "run.stalled",
-      name: "No activity for an hour",
-      description:
-        "Nothing at all for 3600s while the run is live: a hung command or a wedged prompt. Only meaningful live, so `live.stalledSeconds` is absent on a settled run.",
+      name: "长时间没有动静",
+      description: "运行还在进行，但 3600 秒内什么都没有发生：命令卡死，或者提示词卡住了。只在进行中判读。",
       source: "default",
       phase: "live",
       when: {
@@ -192,16 +188,15 @@ export const DEFAULT_PACK: RulePack = {
       emit: {
         reason: "activity_stalled",
         level: "medium",
-        title: "No activity for {{live.stalledSeconds|secs}}",
-        detail: "The run is still live but nothing has happened for a long time.",
+        title: "已经 {{live.stalledSeconds|secs}} 没有任何活动",
+        detail: "运行仍在进行，但很久没有任何事件。",
         tags: ["run", "stall"],
       },
     },
     {
       id: "run.leftover-eggs",
-      name: "A process left running",
-      description:
-        "A primary process the agent laid is still alive after the run ended. Chart reports every one; add a `where` clause on `lifetimeMs` or a name list to skip helpers.",
+      name: "有进程没收尾",
+      description: "代理启动的进程在运行结束后仍然活着。Chart 会报告每一个;想跳过辅助进程，可以在条件里加 lifetimeMs 或名称过滤。",
       source: "default",
       phase: "settled",
       when: {
@@ -213,17 +208,16 @@ export const DEFAULT_PACK: RulePack = {
       emit: {
         reason: "process_left_running",
         level: "high",
-        title: "{{facts.processes.runningAtEnd|count|plural:process}} still running after the run",
-        detail: "Something the agent laid is alive and unwatched.",
+        title: "运行结束后仍有 {{facts.processes.runningAtEnd|count}} 个进程在运行",
+        detail: "代理启动的东西还活着，而且没人看着。",
         tags: ["process"],
         evidence: ["facts.processes.runningAtEnd"],
       },
     },
     {
       id: "run.outside-change",
-      name: "A change outside the project",
-      description:
-        "A watcher change outside the project root — rare, never the agent's business, usually explainable. Add an ignore list by narrowing the condition.",
+      name: "项目外的改动",
+      description: "监视器发现项目目录之外有改动 —— 少见、与代理无关、通常能解释清楚。要忽略某些路径，把条件收窄即可。",
       source: "default",
       phase: "settled",
       when: {
@@ -232,15 +226,15 @@ export const DEFAULT_PACK: RulePack = {
       emit: {
         reason: "outside_change",
         level: "low",
-        title: "{{facts.outsideChanges|count|plural:change}} outside the project",
+        title: "项目外有 {{facts.outsideChanges|count}} 处改动",
         tags: ["files", "outside"],
         evidence: ["facts.outsideChanges"],
       },
     },
     {
       id: "run.file-version-loop",
-      name: "A file reverted to an earlier version",
-      description: "The agent wrote a path back to a state it already held: it undid its own work.",
+      name: "文件被改回旧版本",
+      description: "代理把一个文件写回了它已经持有过的状态：它推翻了自己的工作。",
       source: "default",
       phase: "settled",
       when: {
@@ -249,17 +243,16 @@ export const DEFAULT_PACK: RulePack = {
       emit: {
         reason: "file_version_loop",
         level: "medium",
-        title: "{{facts.reverts|count|plural:file}} reverted to an earlier version",
-        detail: "A revert means the agent changed a file and then changed it back, or wrote what it started with.",
+        title: "{{facts.reverts|count}} 个文件被改回旧版本",
+        detail: "「改回」意味着代理改了文件又改回去，或者写入了和开始时一样的内容。",
         tags: ["files", "loop"],
         evidence: ["facts.reverts"],
       },
     },
     {
       id: "run.command-retry-loop",
-      name: "The same command kept failing",
-      description:
-        "One identical command failed twice or more: the agent is stuck, not unlucky. Judged in both phases.",
+      name: "同一条命令反复失败",
+      description: "同一条命令失败了两次以上：代理是卡住了，不是运气不好。进行中和结束后都判读。",
       source: "default",
       phase: "both",
       when: {
@@ -276,7 +269,7 @@ export const DEFAULT_PACK: RulePack = {
       emit: {
         reason: "command_retry_loop",
         level: "medium",
-        title: "{{facts.retries|count|plural:command}} kept failing",
+        title: "{{facts.retries|count}} 条命令反复失败",
         tags: ["commands", "loop"],
         evidence: ["facts.retries"],
       },

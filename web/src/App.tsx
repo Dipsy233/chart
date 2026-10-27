@@ -1,58 +1,75 @@
 /**
- * The shell. Three views, one state:
+ * The shell: a top bar, three views, and one shared state.
  *
- *   Rules   — packs | rules | the selected rule, with a findings strip underneath
- *   Report  — the run report, full width, as a document
- *   Events  — the event stream as a form, with what it adds up to on the right
+ *   监护报告   runs | events | the report (playback) | the pack
+ *   规则编辑   packs | rules (drag to reorder) | the rule
+ *   事件流     runs | events | the event
  *
- * Every edit goes straight through `PackStore.save(..., { force: true })`: the
- * store validates, the editor shows the problems, and a half-typed rule never
- * blocks anything.
+ * The top bar does exactly two things: switch views, and pick the 监护对象 (the
+ * session being observed). Everything else — phase, anchor, demo labels, notices
+ * — is gone: a control that only exists to explain the old editor is a control
+ * the new one should not have.
+ *
+ * The shared state is the session's events, the selected pack, and the selected
+ * run. Judgement happens only in the report view; the other two views edit data.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_PACK,
   PackStore,
-  newRule,
-  observe,
+  isIdTaken,
   parsePack,
   removeRule,
-  report,
   serializePack,
-  suggestId,
   upsertRule,
+  validatePack,
   type ChartEvent,
-  type Observation,
   type PackSummary,
   type Rule,
   type RulePack,
 } from "../../src/index.ts";
-import { LIVE_REPORT, SETTLED_REPORT } from "../../src/report/defaults.ts";
-import { localStoragePackIO, downloadPack } from "./lib/storage.ts";
+import { adaptivePackIO, backendKind, downloadPack, type Backend } from "./lib/storage.ts";
 import { DEMOS } from "./lib/demo.ts";
 import { renumber } from "./lib/events.ts";
+import { pickRunView, runViews } from "./lib/runs.ts";
+import { RULE_TEMPLATES } from "./lib/plain.ts";
+import { PackColumn } from "./components/PackColumn.tsx";
+import { JsonDialog } from "./components/JsonDialog.tsx";
+import { RuleCardList } from "./components/RuleCardList.tsx";
 import { RuleEditor } from "./components/RuleEditor.tsx";
-import { ReportDocument } from "./components/ReportDocument.tsx";
+import { ReportView } from "./components/ReportView.tsx";
 import { EventStreamEditor } from "./components/EventStreamEditor.tsx";
 
-const store = new PackStore(localStoragePackIO(), DEFAULT_PACK);
+const store = new PackStore(adaptivePackIO(), DEFAULT_PACK);
 
-type View = "rules" | "report" | "events";
+type View = "report" | "rules" | "events";
 
 export function App() {
   const [view, setView] = useState<View>("report");
   const [packs, setPacks] = useState<PackSummary[]>([]);
   const [packName, setPackName] = useState<string | undefined>(undefined);
   const [pack, setPack] = useState<RulePack>(DEFAULT_PACK);
-  const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
+  const [selectedRuleId, setSelectedRuleId] = useState<string | undefined>(undefined);
+
   const [demoId, setDemoId] = useState(DEMOS[0]!.id);
   const [events, setEvents] = useState<ChartEvent[]>(() => renumber(DEMOS[0]!.build()));
-  const [phase, setPhase] = useState<"live" | "settled" | "both">("settled");
-  const [anchor, setAnchor] = useState<number | undefined>(undefined);
-  const [message, setMessage] = useState<string | undefined>(undefined);
-  const eventsInput = useRef<HTMLInputElement>(null);
+  const [runId, setRunId] = useState<string | undefined>(undefined);
+  const [selectedEventIndex, setSelectedEventIndex] = useState<number | undefined>(undefined);
+  const [allEventsMode, setAllEventsMode] = useState(false);
+
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [packJsonOpen, setPackJsonOpen] = useState(false);
+  const [backend, setBackend] = useState<Backend | undefined>(undefined);
+  const [toast, setToast] = useState<{ text: string; tone: "info" | "error" } | undefined>(undefined);
+  const toastTimer = useRef<number | undefined>(undefined);
   const packInput = useRef<HTMLInputElement>(null);
+
+  const notify = useCallback((text: string, tone: "info" | "error" = "info") => {
+    setToast({ text, tone });
+    if (toastTimer.current !== undefined) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(undefined), 4200);
+  }, []);
 
   /* ── load ───────────────────────────────────────────────── */
 
@@ -62,14 +79,35 @@ export function App() {
 
   useEffect(() => {
     void (async () => {
+      setBackend(await backendKind());
       await refreshPacks();
       const active = await store.activeName();
       setPackName(active);
       const loaded = await store.load(active).catch(() => DEFAULT_PACK);
       setPack(loaded);
-      setSelectedId(loaded.rules[0]?.id);
+      setSelectedRuleId(loaded.rules[0]?.id);
     })();
   }, [refreshPacks]);
+
+  /* ── the run, derived from the stream ───────────────────── */
+
+  const views = useMemo(() => runViews(events), [events]);
+  const selectedView = pickRunView(views, runId);
+
+  // Keep the event panel pointing at something real whenever the scope changes.
+  useEffect(() => {
+    if (view !== "events") return;
+    if (!selectedView || (allEventsMode ? events.length === 0 : selectedView.eventCount === 0)) {
+      setSelectedEventIndex(undefined);
+      return;
+    }
+    setSelectedEventIndex((current) => {
+      if (current === undefined) return allEventsMode ? 0 : selectedView.run.fromIndex;
+      if (allEventsMode) return Math.min(current, events.length - 1);
+      if (current >= selectedView.run.fromIndex && current <= selectedView.run.toIndex) return current;
+      return selectedView.run.fromIndex;
+    });
+  }, [view, selectedView, allEventsMode, events.length]);
 
   /* ── persistence ────────────────────────────────────────── */
 
@@ -81,16 +119,27 @@ export function App() {
         await store.save(name, next, { force: true });
         await refreshPacks();
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : String(error));
+        notify(error instanceof Error ? error.message : String(error), "error");
       }
     },
-    [refreshPacks],
+    [notify, refreshPacks],
   );
 
   const updateRule = useCallback(
     (rule: Rule) => {
-      setSelectedId(rule.id);
+      setSelectedRuleId(rule.id);
       void persist(packName, upsertRule(pack, rule));
+    },
+    [pack, packName, persist],
+  );
+
+  const moveRule = useCallback(
+    (from: number, to: number) => {
+      const rules = [...pack.rules];
+      const [moved] = rules.splice(from, 1);
+      if (!moved) return;
+      rules.splice(to, 0, moved);
+      void persist(packName, { ...pack, rules });
     },
     [pack, packName, persist],
   );
@@ -98,40 +147,45 @@ export function App() {
   /* ── packs ──────────────────────────────────────────────── */
 
   const openPack = async (name: string | undefined) => {
-    const loaded = await store.load(name).catch(() => DEFAULT_PACK);
+    // `undefined` means the built-in defaults, not "the active pack": the pack
+    // list already shows which pack is active, and picking the defaults has to
+    // pick the defaults even when another pack is active.
+    const loaded = name === undefined ? DEFAULT_PACK : await store.load(name).catch(() => DEFAULT_PACK);
     setPackName(name);
     setPack(loaded);
-    setSelectedId(loaded.rules[0]?.id);
-    setMessage(undefined);
+    setSelectedRuleId(loaded.rules[0]?.id);
   };
 
   const createPack = async () => {
-    const name = window.prompt("Pack name (letters, digits, . - _)", "work");
+    const name = window.prompt("新规则包的名字(字母、数字、. - _)", "work");
     if (!name) return;
     try {
-      const created = await store.create(name);
+      // Copy what is on screen, not the pristine defaults: a user who dragged a
+      // rule before forking should keep the order they just chose.
+      const next: RulePack = { ...structuredClone(pack), name };
+      await store.save(name, next, { force: true });
+      await store.activate(name).catch(() => undefined);
       await refreshPacks();
       setPackName(name);
-      setPack(created);
-      setSelectedId(created.rules[0]?.id);
-      setMessage(`created and activated “${name}”`);
+      setPack(next);
+      setSelectedRuleId(next.rules[0]?.id);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      notify(error instanceof Error ? error.message : String(error), "error");
     }
   };
 
-  const activatePack = async (name: string) => {
+  const activatePack = async (name: string | undefined) => {
     try {
-      await store.activate(name);
+      if (name === undefined) await store.deactivate();
+      else await store.activate(name);
       await refreshPacks();
-      setMessage(`active pack: ${name}`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      notify(error instanceof Error ? error.message : String(error), "error");
     }
   };
 
   const deletePack = async (name: string) => {
-    if (!window.confirm(`Delete pack “${name}”?`)) return;
+    if (!window.confirm(`确定删除规则包「${name}」吗？`)) return;
     await store.remove(name);
     await refreshPacks();
     if (packName === name) await openPack(undefined);
@@ -139,85 +193,84 @@ export function App() {
 
   /* ── rules ──────────────────────────────────────────────── */
 
-  const addRule = () => {
-    const base = suggestId(`rule ${pack.rules.length + 1}`);
-    let id = base;
+  const addRuleFromTemplate = (templateId: string) => {
+    const template = RULE_TEMPLATES.find((candidate) => candidate.id === templateId);
+    if (!template) return;
+    let id = `user.${template.id}`;
     let counter = 2;
-    while (pack.rules.some((rule) => rule.id === id)) id = `${base}-${counter++}`;
-    updateRule(newRule(id));
+    while (isIdTaken(pack, id)) id = `user.${template.id}-${counter++}`;
+    const rule: Rule = { ...template.build(id), description: template.desc };
+    updateRule(rule);
+    setTemplateOpen(false);
     setView("rules");
   };
 
-  const moveRule = (id: string, direction: -1 | 1) => {
-    const index = pack.rules.findIndex((rule) => rule.id === id);
-    const target = index + direction;
-    if (index < 0 || target < 0 || target >= pack.rules.length) return;
-    const rules = [...pack.rules];
-    const [moved] = rules.splice(index, 1);
-    rules.splice(target, 0, moved!);
-    void persist(packName, { ...pack, rules });
+  const duplicateRule = (rule: Rule) => {
+    let id = `${rule.id}.copy`;
+    let counter = 2;
+    while (isIdTaken(pack, id)) id = `${rule.id}.copy-${counter++}`;
+    updateRule({
+      ...structuredClone(rule),
+      id,
+      name: `${rule.name ?? rule.id} · 副本`,
+    });
   };
 
-  /* ── simulation ─────────────────────────────────────────── */
+  const deleteRule = (rule: Rule) => {
+    const next = removeRule(pack, rule.id);
+    setSelectedRuleId(next.rules[0]?.id);
+    void persist(packName, next);
+  };
 
-  const observation: Observation | undefined = useMemo(() => {
-    if (events.length === 0) return undefined;
-    try {
-      return observe(events, {
-        pack,
-        phase: phase === "both" ? undefined : phase,
-        live: anchor === undefined ? {} : { nowMs: anchor },
-        anchor,
-      });
-    } catch {
-      return undefined;
-    }
-  }, [events, pack, phase, anchor]);
+  /* ── sessions ───────────────────────────────────────────── */
 
-  const rendered = useMemo(() => {
-    if (!observation) return undefined;
-    const spec = phase === "live" ? LIVE_REPORT : SETTLED_REPORT;
-    return report(observation, spec, anchor === undefined ? {} : { nowMs: anchor });
-  }, [observation, phase, anchor]);
+  const switchDemo = (id: string) => {
+    const demo = DEMOS.find((candidate) => candidate.id === id);
+    if (!demo) return;
+    setDemoId(demo.id);
+    setEvents(renumber(demo.build()));
+    setRunId(undefined);
+    setSelectedEventIndex(undefined);
+    setAllEventsMode(false);
+  };
 
-  const firedIds = new Set(observation?.findings.map((finding) => finding.ruleId) ?? []);
-  const selectedRule = pack.rules.find((rule) => rule.id === selectedId);
-  const packIssues = packs.find((summary) => summary.name === packName)?.issues.length ?? 0;
+  const selectedRule = pack.rules.find((rule) => rule.id === selectedRuleId) ?? pack.rules[0];
 
   /* ── render ─────────────────────────────────────────────── */
 
   return (
     <div className="shell">
       <div className="topbar">
+        <svg className="ecg" width="66" height="20" viewBox="0 0 72 22" aria-hidden="true">
+          <path d="M0 14 H12 l3 -3 l3 3 h6 l3 -12 l4 20 l3 -8 h8 l3 -3 l3 3 h21" />
+        </svg>
         <span className="brand">CHART</span>
         <span className="brand-sub">Regimen</span>
 
         <div className="views">
           <button className={view === "report" ? "on" : ""} onClick={() => setView("report")}>
-            Report
+            监护报告
           </button>
           <button className={view === "rules" ? "on" : ""} onClick={() => setView("rules")}>
-            Rules
+            规则编辑
           </button>
           <button className={view === "events" ? "on" : ""} onClick={() => setView("events")}>
-            Events
+            事件流
           </button>
         </div>
 
         <span className="spacer" />
 
-        <span className="label">run</span>
+        <span className={`backend ${backend ?? "local"}`} title={backend === "api" ? "规则包存在磁盘上，和 API/agent 共享" : "规则包存在浏览器 localStorage 里；启动 npm run api 可与磁盘共享"}>
+          {backend === "api" ? "磁盘 · API" : "浏览器"}
+        </span>
+
+        <span className="label">监护对象</span>
         <select
-          className="field"
-          style={{ width: 220 }}
+          className="field subject"
           value={demoId}
-          onChange={(event) => {
-            const demo = DEMOS.find((candidate) => candidate.id === event.target.value);
-            if (!demo) return;
-            setDemoId(demo.id);
-            setEvents(renumber(demo.build()));
-            setAnchor(undefined);
-          }}
+          onChange={(event) => switchDemo(event.target.value)}
+          title={DEMOS.find((demo) => demo.id === demoId)?.description}
         >
           {DEMOS.map((demo) => (
             <option key={demo.id} value={demo.id}>
@@ -225,308 +278,198 @@ export function App() {
             </option>
           ))}
         </select>
-        <button className="btn tiny" onClick={() => eventsInput.current?.click()}>
-          load…
-        </button>
-        <input
-          ref={eventsInput}
-          type="file"
-          accept=".json"
-          style={{ display: "none" }}
-          onChange={async (event) => {
-            const file = event.target.files?.[0];
-            event.target.value = "";
-            if (!file) return;
-            try {
-              const parsed = JSON.parse(await file.text()) as unknown;
-              const list = Array.isArray(parsed) ? parsed : ((parsed as { events?: unknown[] }).events ?? []);
-              setEvents(renumber(list as ChartEvent[]));
-              setAnchor(undefined);
-              setMessage(`loaded ${list.length} events`);
-            } catch (error) {
-              setMessage(`cannot read events: ${String(error)}`);
-            }
-          }}
-        />
-
-        <span className="label">phase</span>
-        <select
-          className="field"
-          style={{ width: 104 }}
-          value={phase}
-          onChange={(event) => setPhase(event.target.value as never)}
-        >
-          <option value="settled">settled</option>
-          <option value="live">live</option>
-          <option value="both">all rules</option>
-        </select>
-
-        <button className="btn tiny" onClick={() => setAnchor(undefined)} title="Judge against the end of the run">
-          run end
-        </button>
-        <button
-          className="btn tiny"
-          onClick={() => setAnchor((observation?.facts.lastActivityAt ?? Date.now()) + 5 * 60_000)}
-          title="Five minutes later: watch live windows go quiet"
-        >
-          +5m
-        </button>
-
-        {packIssues > 0 ? <span className="chip high">{packIssues} pack issue</span> : null}
-        {observation && observation.errors.length > 0 ? (
-          <span className="chip high">{observation.errors.length} rule error</span>
-        ) : null}
-        {message ? <span className="tiny muted">{message}</span> : null}
       </div>
 
-      {/* ══ report ═══════════════════════════════════════════ */}
-      {view === "report" ? (
-        <div className="view" style={{ display: "block", overflowY: "auto", background: "var(--bg)" }}>
-          {rendered && observation ? (
-            <>
-              <div style={{ maxWidth: 1080, margin: "0 auto", padding: "18px 32px 0", display: "flex", gap: 12 }}>
-                <span className="tiny muted">
-                  {observation.run.id} · {observation.facts.commands.total} commands ·{" "}
-                  {observation.facts.files.created.length + observation.facts.files.modified.length} files touched
-                </span>
-                <span className="spacer" />
-                <span className="tiny muted">
-                  judged by <span className="mono">{packName ?? "built-in defaults"}</span>
-                  {anchor === undefined ? " at run end" : ` at ${new Date(anchor).toLocaleString()}`}
-                </span>
-                <button className="btn tiny" onClick={() => setView("events")}>
-                  edit the stream →
-                </button>
-              </div>
-              <ReportDocument report={rendered} />
-            </>
+      {/* ══ 监护报告 ═════════════════════════════════════════ */}
+      {/* Kept mounted so the tape keeps its position when you go edit a rule. */}
+      <ReportView
+        sessionId={demoId}
+        active={view === "report"}
+        events={events}
+        views={views}
+        runId={runId ?? selectedView?.run.id}
+        pack={pack}
+        packs={packs}
+        packName={packName}
+        onSelectRun={setRunId}
+        onSelectPack={(name) => void openPack(name)}
+        onActivatePack={(name) => void activatePack(name)}
+        onCreatePack={() => void createPack()}
+        onSelectRule={(id) => {
+          setSelectedRuleId(id);
+          setView("rules");
+        }}
+        onOpenEvents={() => setView("events")}
+      />
+
+      {/* ══ 规则编辑 ═════════════════════════════════════════ */}
+      {view === "rules" ? (
+        <div className="view rules">
+          <PackColumn
+            packs={packs}
+            packName={packName}
+            onSelect={(name) => void openPack(name)}
+            onCreate={() => void createPack()}
+            onActivate={(name) => void activatePack(name)}
+            onDelete={(name) => void deletePack(name)}
+            onImport={() => packInput.current?.click()}
+            onExport={() => packName && downloadPack(packName, serializePack(pack))}
+            onShowJson={() => setPackJsonOpen(true)}
+          />
+          <input
+            ref={packInput}
+            type="file"
+            accept=".json"
+            style={{ display: "none" }}
+            onChange={async (event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (!file) return;
+              try {
+                const parsed = parsePack(await file.text());
+                const name = file.name.replace(/\.json$/i, "");
+                await store.save(name, parsed, { force: true });
+                await refreshPacks();
+                await openPack(name);
+                notify(`已导入「${name}」`);
+              } catch (error) {
+                notify(error instanceof Error ? error.message : String(error), "error");
+              }
+            }}
+          />
+
+          <div className="col rules-col">
+            <div className="pane-head">
+              <span>规则 rules</span>
+              <span className="spacer" />
+              <span className="tiny">{pack.rules.length}</span>
+              <button className="btn tiny" onClick={() => setTemplateOpen(true)} title="从模板新建一条规则">
+                ＋新建
+              </button>
+            </div>
+            <div className="pane-body">
+              <RuleCardList
+                rules={pack.rules}
+                selectedId={selectedRule?.id}
+                onSelect={setSelectedRuleId}
+                onMove={moveRule}
+              />
+            </div>
+          </div>
+
+          {selectedRule ? (
+            <RuleEditor
+              key={selectedRule.id}
+              rule={selectedRule}
+              pack={pack}
+              readOnly={packName === undefined}
+              onFork={() => void createPack()}
+              onChange={updateRule}
+              onDelete={() => deleteRule(selectedRule)}
+              onDuplicate={() => duplicateRule(selectedRule)}
+              onOpenReport={() => setView("report")}
+              onNotify={notify}
+            />
           ) : (
-            <div style={{ padding: 40 }} className="empty">
-              No run to report on. Load a demo, or build a stream in the Events view.
+            <div className="col rule-main">
+              <div className="pane-body">
+                <div className="empty">这个规则包还没有规则，点「＋新建」从一个模板开始。</div>
+              </div>
             </div>
           )}
         </div>
       ) : null}
 
-      {/* ══ rules ════════════════════════════════════════════ */}
-      {view === "rules" ? (
-        <div className="view rules">
-          {/* packs */}
-          <div className="col">
-            <div className="pane-head">
-              <span>packs</span>
-              <span className="spacer" />
-              <button className="btn tiny" onClick={createPack} title="Copy the defaults into a new pack">
-                +
-              </button>
-            </div>
-            <div className="pane-body stack" style={{ gap: 2 }}>
-              <div className={`pack${packName === undefined ? " sel" : ""}`} onClick={() => void openPack(undefined)}>
-                <span className="dot">{packName === undefined ? "●" : ""}</span>
-                <span className="name">built-in defaults</span>
-              </div>
-              {packs.map((summary) => (
-                <div
-                  key={summary.name}
-                  className={`pack${packName === summary.name ? " sel" : ""}`}
-                  onClick={() => void openPack(summary.name)}
-                >
-                  <span className="dot">{summary.active ? "●" : ""}</span>
-                  <span className="name">{summary.name}</span>
-                  {summary.issues.length > 0 ? <span className="bad">!</span> : null}
-                  <button
-                    className="btn tiny"
-                    title={summary.active ? "this is the active pack" : "make active"}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void activatePack(summary.name);
-                    }}
-                  >
-                    {summary.active ? "✓" : "○"}
-                  </button>
-                  <button
-                    className="btn tiny danger"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void deletePack(summary.name);
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-              {packs.length === 0 ? (
-                <div className="tiny muted" style={{ marginTop: 4 }}>
-                  No packs yet. “+” copies the built-in defaults into an editable pack.
-                </div>
-              ) : null}
+      {/* ══ 事件流 ═══════════════════════════════════════════ */}
+      {view === "events" ? (
+        <EventStreamEditor
+          events={events}
+          views={views}
+          runId={selectedView?.run.id}
+          allMode={allEventsMode}
+          selectedIndex={selectedEventIndex}
+          onChange={setEvents}
+          onSelectRun={setRunId}
+          onToggleAll={() => setAllEventsMode((current) => !current)}
+          onSelectIndex={setSelectedEventIndex}
+        />
+      ) : null}
 
-              <div className="row" style={{ marginTop: 12 }}>
-                <button className="btn tiny" onClick={() => packInput.current?.click()}>
-                  import
-                </button>
-                <input
-                  ref={packInput}
-                  type="file"
-                  accept=".json"
-                  style={{ display: "none" }}
-                  onChange={async (event) => {
-                    const file = event.target.files?.[0];
-                    event.target.value = "";
-                    if (!file) return;
-                    try {
-                      const parsed = parsePack(await file.text());
-                      const name = file.name.replace(/\.json$/i, "");
-                      await store.save(name, parsed, { force: true });
-                      await refreshPacks();
-                      await openPack(name);
-                      setMessage(`imported “${name}”`);
-                    } catch (error) {
-                      setMessage(error instanceof Error ? error.message : String(error));
-                    }
-                  }}
-                />
-                {packName ? (
-                  <button
-                    className="btn tiny"
-                    onClick={() => downloadPack(packName, serializePack(pack))}
-                    title="Download for .chart/rules/"
-                  >
-                    export
-                  </button>
-                ) : null}
-              </div>
+      {/* ══ 模板 ═════════════════════════════════════════════ */}
+      {templateOpen ? (
+        <div className="modal-veil" onClick={() => setTemplateOpen(false)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <h2>＋ 新建规则</h2>
+            <div className="sub">
+              从一个常见场景开始，选完随时可以改。需要「A 而且 B,或者 C」?拆成两条规则就好。
             </div>
-          </div>
-
-          {/* rules */}
-          <div className="col">
-            <div className="pane-head">
-              <span>rules</span>
-              <span className="spacer" />
-              <span className="tiny">{pack.rules.length}</span>
-              <button className="btn tiny" onClick={addRule} title="Add a rule">
-                +
-              </button>
-            </div>
-            <div className="pane-body stack" style={{ gap: 2 }}>
-              {pack.rules.map((rule) => {
-                const off = rule.enabled === false || rule.emit.level === "none";
-                return (
-                  <div
-                    key={rule.id}
-                    className={[
-                      "rule",
-                      rule.id === selectedId ? "sel" : "",
-                      firedIds.has(rule.id) ? "fired" : "",
-                      off ? "off" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    onClick={() => setSelectedId(rule.id)}
-                  >
-                    <span className="id">{rule.id}</span>
-                    <span className="row" style={{ gap: 2 }}>
-                      <button
-                        className="btn tiny"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          moveRule(rule.id, -1);
-                        }}
-                        title="Higher priority"
-                      >
-                        ▲
-                      </button>
-                      <button
-                        className="btn tiny"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          moveRule(rule.id, 1);
-                        }}
-                        title="Lower priority"
-                      >
-                        ▼
-                      </button>
-                    </span>
-                    <span className="meta">
-                      <span className={`chip ${off ? "off" : rule.emit.level}`}>{off ? "off" : rule.emit.level}</span>
-                      {rule.phase && rule.phase !== "both" ? <span className={`chip ${rule.phase}`}>{rule.phase}</span> : null}
-                      <span className="txt">{rule.emit.title}</span>
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* the selected rule */}
-          <div className="col">
-            {selectedRule ? (
-              <RuleEditor
-                rule={selectedRule}
-                pack={pack}
-                events={events}
-                anchor={anchor}
-                fired={firedIds.has(selectedRule.id)}
-                onChange={updateRule}
-                onDelete={() => {
-                  const next = removeRule(pack, selectedRule.id);
-                  setSelectedId(next.rules[0]?.id);
-                  void persist(packName, next);
-                }}
-                onDuplicate={() =>
-                  updateRule({
-                    ...structuredClone(selectedRule),
-                    id: `${selectedRule.id}.copy`,
-                    name: `${selectedRule.name ?? selectedRule.id} (copy)`,
-                  })
-                }
-              />
-            ) : (
-              <div className="pane-body">
-                <div className="empty">
-                  {pack.rules.length === 0 ? "This pack has no rules. “+” adds one." : "Select a rule."}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* the findings strip: editing feedback, not the report */}
-          <div className="strip">
-            <span className={`chip ${observation?.attention.level ?? "none"}`}>
-              {observation?.attention.level ?? "none"}
-            </span>
-            {observation && observation.findings.length > 0 ? (
-              observation.findings.map((finding) => (
-                <span className="item" key={finding.ruleId}>
-                  <span className={`chip ${finding.level}`}>{finding.level}</span>
-                  <span className="t">{finding.title}</span>
+            {RULE_TEMPLATES.map((template) => (
+              <button className="template" key={template.id} onClick={() => addRuleFromTemplate(template.id)}>
+                <span className="ico">▸</span>
+                <span>
+                  <div className="name">{template.name}</div>
+                  <div className="desc">{template.desc}</div>
                 </span>
-              ))
-            ) : (
-              <span className="muted tiny">Nothing fires on this run.</span>
-            )}
-            <span className="spacer" />
-            <button className="btn tiny" onClick={() => setView("report")}>
-              open the report →
-            </button>
+              </button>
+            ))}
           </div>
         </div>
       ) : null}
 
-      {/* ══ events ═══════════════════════════════════════════ */}
-      {view === "events" ? (
-        <EventStreamEditor
-          events={events}
-          observation={observation}
-          onChange={setEvents}
-          onOpenReport={() => setView("report")}
-          onSelectRule={(id) => {
-            setSelectedId(id);
-            setView("rules");
+      {packJsonOpen ? (
+        <JsonDialog
+          title={packName ? `规则包「${packName}」` : "内置默认规则包"}
+          subtitle={`${pack.rules.length} 条规则${packName ? "" : " · 只读，应用会先复制成新的规则包"}`}
+          value={pack}
+          onClose={() => setPackJsonOpen(false)}
+          onCopied={(ok) => notify(ok ? "已复制规则包 JSON" : "复制失败，请手动选择文本", ok ? "info" : "error")}
+          actions={
+            packName ? (
+              <button
+                className="btn tiny"
+                onClick={() => downloadPack(packName, serializePack(pack))}
+                title="下载成 JSON 文件，可以发给别人"
+              >
+                下载
+              </button>
+            ) : null
+          }
+          onApply={async (parsed) => {
+            try {
+              const next = parsePack(JSON.stringify(parsed));
+              const issues = validatePack(next);
+              if (issues.length > 0) {
+                notify(`规则包有 ${issues.length} 处问题，已拒绝应用`, "error");
+                return;
+              }
+              if (packName === undefined) {
+                const name = window.prompt(
+                  "这是内置默认规则包（只读）。要应用到哪个规则包?输入一个新名字会新建一份。",
+                  "work",
+                );
+                if (!name) return;
+                await store.save(name, next, { force: true });
+                await refreshPacks();
+                setPackName(name);
+                setPack(next);
+                setSelectedRuleId(next.rules[0]?.id);
+                notify(`已新建并应用「${name}」`);
+              } else {
+                await store.save(packName, next, { force: true });
+                await refreshPacks();
+                setPack(next);
+                setSelectedRuleId(next.rules[0]?.id);
+                notify(`已应用到「${packName}」`);
+              }
+              setPackJsonOpen(false);
+            } catch (error) {
+              notify(error instanceof Error ? error.message : String(error), "error");
+            }
           }}
         />
       ) : null}
+
+      {toast ? <div className={`toast ${toast.tone}`}>{toast.text}</div> : null}
     </div>
   );
 }

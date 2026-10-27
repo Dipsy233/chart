@@ -115,22 +115,26 @@ The pane Absence needs (and that this model was shaped for):
 
 ```
 ┌ packs ──────────┬ rules ────────────────────────┬ rule ─────────────────────┐
-│ ● work          │ run.agent-stopped    high     │ id    [user.burst      ]  │
-│   personal      │ run.unresolved-error high     │ phase [live ▾]            │
-│                 │ run.commands-failed  low      │ level [high ▾]            │
-│ + new name      │ user.burst           high  ●  │ ── conditions ─────────── │
-│                 │                               │ [all ▾]                   │
-│                 │                               │ facts.commands.failed ≥ 5 │
-│                 │                               │ window  command  last 2m  │
-│                 │                               │         count    ≥ 5      │
-│                 │                               │ + add condition           │
-│                 │                               │ ── says ───────────────── │
-│                 │                               │ title  [ …            ]   │
-│                 │                               │ ── preview ────────────── │
-│                 │                               │ ▶ run against this run    │
-│                 │                               │   HIGH 5 failures in 2m   │
+│ ● work          │ ⠿ 代理带着错误停止     严重   │ 1 信息                     │
+│   personal      │ ⠿ 未恢复的失败         严重   │   名称 / 描述 / 标签       │
+│ + new name      │ ⠿ 失败命令             提示   │   判读时机 / 优先级        │
+│ import export   │ ⠿ 进程没收尾           严重   │ 2 规则                     │
+│                 │ …                             │   人话版：当 … 时，发出…     │
+│                 │                               │   [全部满足] ＋比较 ＋统计  │
+│                 │                               │   条件卡片 …               │
+│                 │                               │ 3 报告                     │
+│                 │                               │   级别 / 标题 / 说明 / 证据 │
 └─────────────────┴───────────────────────────────┴───────────────────────────┘
 ```
+
+Two layout decisions the model was shaped for:
+
+- **order is evaluation order**, so the rule list reorders with a grip on the
+  left instead of two arrow buttons; cards are a fixed height so a long name is
+  truncated rather than stretching the column;
+- **the rule panel is three numbered blocks** (信息 / 规则 / 报告), which is the
+  order a rule is thought about. The conditions are the only part that needs the
+  language; everything else is a form.
 
 The pieces, and where each comes from:
 
@@ -140,10 +144,11 @@ The pieces, and where each comes from:
 | rule list with level/phase | `pack.rules` + `describeRule` |
 | field picker | `allFields()` / `eventFields(types)` |
 | operator picker | `operatorsForField(path)` |
-| condition rows (compare / quantify / window) | the three `Condition` shapes |
+| enumerated value select | the catalogue's path → known values |
+| condition rows (compare / quantify / window / sequence) | the four `Condition` shapes |
 | "add condition" | push onto `when.conditions` — **never** nest |
 | validation underlines | `validateRule(rule)` → `issue.path` |
-| preview | `previewRule(rule, events, { anchor })` |
+| preview (optional host affordance) | `previewRule(rule, events, { anchor })` |
 | save | `store.save(name, upsertRule(pack, rule))` |
 
 Two UI rules worth writing down, because they are what keeps the language honest:
@@ -152,6 +157,12 @@ Two UI rules worth writing down, because they are what keeps the language honest
    "add a second rule" — the UI should say so in one line, not grow a tree editor.
 2. **Show the sentence.** `describeRule(rule)` next to every rule makes the
    difference between a list of JSON blobs and a list of intentions.
+
+A third rule, learned from the editor in `web/`: **keep judgement in one place.**
+The rule panel edits data; the report panel is where the pack is run. A preview
+button is a legitimate host affordance (the CLI has one), but if the product has a
+report, putting findings next to the form teaches users that editing a rule is the
+same as reading a report. It is not.
 
 Monaco is the right editor for the raw-JSON escape hatch (Absence already has it),
 but the row builder is the primary path: most users should never type `facts.`.

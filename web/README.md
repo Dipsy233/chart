@@ -1,124 +1,165 @@
 # Chart · Regimen editor (web)
 
-A visual rule editor, a readable run report, and an event-stream simulator — in
-the browser. It imports `../src` directly: no build step between the engine and
-the UI that shows it.
+A rule editor, a run report you can *play*, and an event-stream editor — in the
+browser. It imports `../src` directly: no build step between the engine and the UI
+that shows it.
 
 ```bash
 npm install
 npm run dev      # http://localhost:5174
 ```
 
+## One rule: judgement lives in the report
+
+The editor, the event stream, and the pack list all edit **data**. Only the report
+panel runs the pack. That is the split the whole UI is built around:
+
+- editing a rule never shows a verdict next to the form;
+- editing an event never shows a finding next to the event;
+- the report panel is the one place a judgement appears, and it says which pack
+  produced it.
+
+So the feedback loop is a deliberate two-step: change something, then look at the
+report. The report is a playback, so looking is cheap.
+
 ## Three views, one state
 
-The top bar switches between them; everything else (the run, the pack, the phase,
-the anchor) is shared, so a rule you edit is the rule the report judges with.
+The top bar switches views and picks the **监护对象** (the session being
+observed). Nothing else lives there: no phase, no anchor, no demo captions.
 
-| View | What it is |
-|---|---|
-| **Report** | The run, as a document. Verdict, findings, at-a-glance numbers, command/file/process tables, what the agent learned, the world line, evidence. |
-| **Rules** | Packs on the left, rules in the middle, the selected rule on the right, and a **findings strip** underneath so an edit has feedback without a full report. |
-| **Events** | The event stream as a form: add, edit, reorder, retime, and watch the verdict move. |
+Everything else — the session's events, the selected pack, the selected run — is
+shared, so the rule you edit is the rule the report judges with.
 
-### Why the report is its own view
-
-Editing a rule and reading a report are different tasks with different reading
-habits: one wants density and controls, the other wants prose and space. Sharing
-a screen made both worse — the report was squeezed into a 340px column while the
-editor had three. The strip under the Rules view keeps the feedback loop (you see
-what fires) without pretending to be the report.
-
-Typography follows the same split: **sans for prose**, **monospace for
-identifiers** (paths, ids, commands, event names). The earlier pass was
-monospace everywhere, which is why it read like a log file.
-
-## Report view
-
-- The verdict is a large coloured word, not a chip: `high` / `medium` / `low`.
-- Findings are cards with a coloured spine, a sentence, an optional second
-  sentence, and the evidence ids in monospace.
-- Stats are a two-column list (`commands · 1 ok / 3 failed`), not a table.
-- Tables are for things with rows: commands, files, processes, what was read.
-- The world line is a timeline with relative offsets, action, subject, effect.
-- A slim bar above the document says which pack judged it and at which anchor —
-  the answer to "why does it say high?".
-
-## Rules view
+### 监护报告 — runs | events | the report | the pack
 
 ```
-┌ packs ────────┬ rules ────────────────┬ the selected rule ───────────────┐
-│ ● work        │ run.agent-stopped     │ id · enabled · phase · level     │
-│   defaults    │ run.unresolved-error  │ reads as: <one sentence>         │
-│ + import      │ user.rule-13          │ conditions: compare/quant/window │
-│   export      │ +                     │ what it says: title/detail/tags  │
-│               │                       │ ▶ preview on this run            │
-├───────────────┴───────────────────────┴──────────────────────────────────┤
-│ high  1 failure with no recovery   medium  3 commands failed back to back│
-└──────────────────────────────────────────────────────────────────────────┘
+┌ runs ──────┬ events ───────────┬ the report ──────────────────┬ the lens ─────┐
+│ 第 1 轮    │ 02 消息    +5s    │ ⏮ ◀ ▶播放 ▶ ⏭   1× 2× 4×    │ pack [work ▾] │
+│ 已完成     │ 03 思考   +10s    │ 事件 7/14 ──────●──────────  │ 本轮触发      │
+│ run_1 · …  │ 04 搜索   +15s    │ ── 运行报告 · run_1 ──      │ 严重 4 个失败 │
+│ 第 2 轮    │ 05 读文件 +20s    │ 严重  失败                  │ 警告 连续失败 │
+│ …          │ 06 命令   +25s    │ 触发结果 …                  │ 规则状态 …    │
+└────────────┴───────────────────┴─────────────────────────────┴───────────────┘
 ```
 
-The condition editor is driven by the catalogue, not hard-coded:
+The report is a **tape**, not a static document. Each frame reveals one more
+event, judges the revealed prefix, and re-renders:
 
-- the field dropdown lists **every** addressable path (facts and live), with
-  array elements hinted;
-- the operator dropdown shows only the operators valid for that field's type
-  (number → gt/gte/between; string → regex/glob; every kind → exists/empty);
-- `window` offers the 17 event types as toggle chips, and the `where` sub-rows
-  offer only the payload fields of the types you picked (pick `command` and you
-  get `payload.exitCode`);
-- there is **no "add group"**: `(A and B) or C` is a second rule, and the panel
-  says so once.
+- **play / pause**, **step**, **scrub**, **0.5× / 1× / 2× / 4×**;
+- clicking an event card seeks to it; cards after the cursor are dimmed;
+- the prefix is judged the way a live observer would (live rules, anchor at the
+  next event), and the final frame is judged as a settled run. That is why a
+  `settled` rule only speaks at the end — the right column labels those rules
+  **待判读** instead of pretending they are quiet.
 
-**Preview on this run** is the "execute step" affordance: it judges *this* rule
-against the selected run at the current anchor and shows the finding inline.
-Move the anchor to `+5m` and a window rule goes quiet — the sliding window is
-visible, not theoretical.
+The right column is the lens: which pack is judging, what it fired right now, and
+the state of every rule in the pack (已触发 / 待判读 / 未触发 / 关闭).
 
-## Events view
+The report spec itself is `src/lib/reports.ts` — an ordinary `ReportSpec`, in
+Chinese, with the same sections and sources the engine ships. A custom spec is a
+data edit, not a renderer edit.
 
-The stream is a form, not a JSON blob:
+### 规则编辑 — packs | rules | the rule (form + JSON)
 
 ```
- 1  [agent_start ▾]  +0.0s    ▲ ▼ ⧉ { } ✕
-    timestamp  [11:36:58]   model  [qwen3-4b]
- 6  [command ▾]      +18.2s
-    timestamp  [11:37:14]   command [curl -s …/pricing]
-    exitCode   [28]         stdout  []   stderr [timeout]
+┌ packs ────┬ rules ─────────────────┬ 1 信息 ─────────────┬ 原生 JSON ──────┐
+│ ● 内置默认│ ⠿ 代理带着错误停止 严重│ 名称 / 描述 / 标签   │ {                │
+│ ● work    │ ⠿ 未恢复的失败     严重│ 判读时机 / 优先级     │   "id": "run.…", │
+│ ＋新建     │ ⠿ 连续失败         警告│ 2 规则               │   "phase": "…",  │
+│ { } 规则包 │ ⠿ 进程没收尾       提示│ 人话版 / 条件 / 预设  │   "when": { … }  │
+│ 导入 下载 │ …                      │ 3 报告               │ }                │
+│           │                        │ 级别 / 标题 / 证据    │ [放大]           │
+└───────────┴────────────────────────┴──────────────────────┴──────────────────┘
 ```
 
-- **add** bar at the bottom: one button per event type. A new event is inserted
-  *before* a trailing `agent_end` — anything after it belongs to no run and would
-  be silently ignored.
-- **auto-time** re-spaces everything 5s apart; **shift to now** makes the stream
-  current; **renumber** rewrites ids as `evt_1…` so evidence stays readable.
-- Per card: type, timestamp (`HH:MM:SS`), the payload fields the catalogue says
-  matter for that type, `{ }` to edit the raw JSON, duplicate, delete, reorder.
-- The right panel answers "so what?" — events, span, run id, verdict, the facts
-  the rules will read (commands, streak, files, processes, unresolved, outside),
-  and the findings. Click a finding to jump to its rule.
+**Order is evaluation order.** The grip on the left of every card is the only
+reorder affordance: press, drag, and the list opens a slot under the pointer.
+Cards are a fixed 82px tall and truncate — a long name, description, tag or id
+never stretches the column. Three lines per card: name + level, the description
+from 信息, then tags + phase + id.
 
-That loop — add a failing command, watch `commands` and `streak` move, see a new
-finding appear, open the report — is the simulator.
+The rule's **native JSON** sits in its own column beside the form, live: it is
+the exact object that is saved, so what you read is what you distribute.
+**放大** opens it in a dialog that can copy it or replace the rule with pasted
+JSON (validated before it applies).
 
-## Two demos
+The rule panel is three numbered blocks, in the order a rule is thought about:
 
-- **research run** — two deliverables, a flaky endpoint hit twice, a file written
-  outside the project, a process left running.
-- **flailing run** — five failures inside two minutes, then a recovery. Switch to
-  it to watch a window rule fire and the streak rule agree.
+1. **信息** — name, description, tags, 判读时机 (live / settled / both), priority.
+   Tags are **chips**: each tag is a small card with its own ✕, and a trailing
+   **＋** card opens a one-line input (Enter commits, Esc cancels). No
+   comma-separated string to get wrong. Id, cooldown, suppression and the
+   machine `reason` live in a collapsed **更多设置**.
+2. **规则** — a plain-language reading of the current form, then the conditions.
+   A preset palette (**＋常用条件**) offers the ten shapes most rules are
+   ("命令失败数达到…", "连续失败达到…", "最近 2 分钟内失败…", "有进程没退出", …).
+   Pickers come from the catalogue, so a number field only offers number
+   operators, a status field offers a select of its known values, and a window's
+   `where` only offers payload fields of the event types you picked.
+   There is **no "add group"**: `(A and B) or C` is a second rule, and the panel
+   says so once.
+3. **报告** — the level (four buttons, not a dropdown), the title with an
+   **插入数据** menu for `{{facts.…}}`, an optional detail line, and the evidence
+   the finding points at (checkbox chips for the common sources, free text for the
+   rest). **在报告中查看 →** jumps to the tape.
+
+The built-in defaults are read-only; the panel says so and offers to fork them
+into an editable pack (which copies what is on screen, including your order).
+
+### 事件流 — runs | events | the event
+
+```
+┌ runs ──────┬ events ──────────────┬ 1 基本信息 ───────────────────────┐
+│ 全部事件   │ ⠿ 01 代理启动  +0s   │ 类型 [命令 ▾]  时间 [2026-…]      │
+│ 第 1 轮    │ ⠿ 02 消息      +5s   │ 2 内容 ───────────────────────────│
+│ 第 2 轮    │ ⠿ 03 命令      +10s  │ 命令 [npm test]  退出码 [1]        │
+│ …          │ …                    │ 3 原始 JSON ──────────────────────│
+│            │ [类型 ▾] ＋添加事件   │ { "command": "npm test", … }      │
+└────────────┴──────────────────────┴───────────────────────────────────┘
+```
+
+The record is edited in three steps: pick the round, pick the event, edit the
+event. Cards reorder with the same grip, so a command can be moved before the
+`agent_end` that ignored it. The detail panel is the whole event: type, time, the
+payload fields the catalogue says matter, and the raw JSON one disclosure away.
+
+**全部事件** shows the whole stream instead of one round, for edits that cross a
+run boundary. Adding an event inserts after the selected card, and before a
+trailing `agent_end` (anything after it belongs to no run).
 
 ## Why no node canvas
 
 n8n's canvas draws edges because data flows between nodes. A rule engine has no
 edges: a rule is a flat list of conditions producing one finding. Drawing wires
-would be a lie. This is n8n's *other* UI — the NDV condition builder it uses for
-IF and Filter — which is the honest analogue, plus the canvas's one good idea,
-**execute step**, as *preview on this run*.
+would be a lie. The honest analogue is n8n's *other* UI — the IF/Filter condition
+builder — plus the canvas's one good idea, **execute step**, which here becomes
+**play the run**.
+
+## Packs, JSON, and the API
+
+The editor talks to a **PackIO**, so the backend is a detail:
+
+- **磁盘 · API** — `npm run api` is running (Vite proxies `/api`), packs live in
+  `.chart/rules/`, and an agent edits the same files with `curl`;
+- **浏览器** — no API, packs live in `localStorage` and everything still works.
+
+The top bar says which one you are on. Nothing else in the UI changes, because
+the seam is the store, not the components.
+
+Either way, a pack can be moved as JSON:
+
+- **规则包 JSON** (packs column) opens the whole pack in a dialog: copy,
+  download, or paste someone else's pack and **应用**. Applying to the read-only
+  built-in defaults forks them into a named pack first.
+- Every rule has a **原生 JSON** column next to its form — the exact object that
+  is saved, live — with **放大** for a dialog that can replace the rule.
+
+That is the distribution path: send a pack (or one rule) to another person or a
+model, and paste it back. A pack can be *selected* (the lens) without being
+*active* (the one the observer uses); the report column shows both.
 
 ## Not part of the library
 
 `web/` is a dev tool: not a workspace of the package, not published, and nothing
 in `src/` imports it. `chart` stays dependency-free; React and Vite live only
-here. Packs persist in `localStorage` behind the same `PackIO` interface the CLI's
-`fsPackIO` implements, so `export` produces a file you can drop into
-`.chart/rules/`.
+here.

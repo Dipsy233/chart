@@ -14,14 +14,17 @@
 #  Usage:
 #    ./start-chart.sh              start the editor (http://localhost:5174)
 #    ./start-chart.sh open         start it and open a browser
-#    ./start-chart.sh check        run the 358 checks, then exit
+#    ./start-chart.sh check        run the 477 checks, then exit
 #    ./start-chart.sh demo         print the demo report, then exit
 #    ./start-chart.sh rules        the rule-pack CLI (passes the rest through)
+#    ./start-chart.sh api          the rules API for agents (http://127.0.0.1:5175)
+#    ./start-chart.sh serve        build the editor, serve it + the API on one port
 #    ./start-chart.sh build        production build of the editor
 #
 #  Env:
-#    CHART_PORT=5174   port for the dev server
-#    CHART_RULES_DIR   where the CLI's packs live (default .chart/rules)
+#    CHART_PORT=5174     port for the dev server
+#    CHART_API_PORT=5175 port for the rules API
+#    CHART_RULES_DIR     where the CLI's packs live (default .chart/rules)
 # ===========================================================================
 set -euo pipefail
 
@@ -31,6 +34,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO"
 
 PORT="${CHART_PORT:-5174}"
+API_PORT="${CHART_API_PORT:-5175}"
 
 echo "============================================================"
 echo "  CHART / Regimen — observation engine + rule editor"
@@ -69,6 +73,15 @@ rules)
 	shift
 	exec npm run --silent rules -- "$@"
 	;;
+api)
+	shift
+	exec npm run --silent api -- --port "$API_PORT" "$@"
+	;;
+serve)
+	echo "→ building the editor, then serving it with the API on http://localhost:$API_PORT"
+	npm run --silent web:build
+	exec npm run --silent api -- --port "$API_PORT" --static web/dist
+	;;
 build)
 	echo "→ production build of the editor"
 	(cd web && npx tsc --noEmit && npx vite build)
@@ -85,7 +98,7 @@ start | "")
 	(cd web && npx vite --port "$PORT")
 	;;
 *)
-	echo "usage: $0 [start|open|check|demo|rules|build]" >&2
+	echo "usage: $0 [start|open|check|demo|rules|api|serve|build]" >&2
 	exit 2
 	;;
 esac

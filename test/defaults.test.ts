@@ -324,7 +324,7 @@ section("modes: record, replay, simulate");
 
   // A replay is the record, rendered. It never consults a pack.
   const text = replayText(recorded, judged.facts, SETTLED_REPORT);
-  check("the replay renders the recorded findings", text.includes("kept failing"));
+  check("the replay renders the recorded findings", text.includes("反复失败"));
 
   // A simulation re-judges, and says so.
   const stricter = structuredClone(DEFAULT_PACK);

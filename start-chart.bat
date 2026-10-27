@@ -15,19 +15,23 @@ rem
 rem  Usage:
 rem    start-chart.bat              start the editor (http://localhost:5174)
 rem    start-chart.bat open         start it and open a browser
-rem    start-chart.bat check        run the 358 checks, then exit
+rem    start-chart.bat check        run the 477 checks, then exit
 rem    start-chart.bat demo         print the demo report, then exit
 rem    start-chart.bat rules list   the rule-pack CLI (passes the rest through)
+rem    start-chart.bat api          the rules API for agents (http://127.0.0.1:5175)
+rem    start-chart.bat serve        build the editor, serve it + the API on one port
 rem    start-chart.bat build        production build of the editor
 rem
 rem  Env:
-rem    CHART_PORT=5174   port for the dev server
-rem    CHART_RULES_DIR   where the CLI's packs live (default .chart\rules)
+rem    CHART_PORT=5174     port for the dev server
+rem    CHART_API_PORT=5175 port for the rules API
+rem    CHART_RULES_DIR     where the CLI's packs live (default .chart\rules)
 rem ==========================================================================
 setlocal enableextensions enabledelayedexpansion
 cd /d "%~dp0"
 
 if "%CHART_PORT%"=="" (set "PORT=5174") else (set "PORT=%CHART_PORT%")
+if "%CHART_API_PORT%"=="" (set "API_PORT=5175") else (set "API_PORT=%CHART_API_PORT%")
 
 echo ============================================================
 echo   CHART / Regimen - observation engine + rule editor
@@ -104,6 +108,25 @@ if /i "%CMD%"=="rules" (
   exit /b %errorlevel%
 )
 
+if /i "%CMD%"=="api" (
+  set "REST="
+  for /f "tokens=1,*" %%A in ("%*") do set "REST=%%B"
+  if defined REST (
+    call npm run --silent api -- --port %API_PORT% !REST!
+  ) else (
+    call npm run --silent api -- --port %API_PORT%
+  )
+  exit /b %errorlevel%
+)
+
+if /i "%CMD%"=="serve" (
+  echo -^> building the editor, then serving it with the API on http://localhost:%API_PORT%
+  call npm run --silent web:build
+  if errorlevel 1 exit /b 1
+  call npm run --silent api -- --port %API_PORT% --static web/dist
+  exit /b %errorlevel%
+)
+
 if /i "%CMD%"=="open" (
   echo -^> starting the editor on http://localhost:%PORT% ^(opening a browser^)
   echo   ctrl-c to stop
@@ -122,5 +145,5 @@ if /i "%CMD%"=="start" (
   exit /b %errorlevel%
 )
 
-echo usage: %~nx0 [start^|open^|check^|demo^|rules^|build]
+echo usage: %~nx0 [start^|open^|check^|demo^|rules^|api^|serve^|build]
 exit /b 2

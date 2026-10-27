@@ -21,7 +21,9 @@
     "rules": "tsx scripts/chart.ts",
     "web": "npm --prefix web run dev",
     "web:build": "npm --prefix web run build",
-    "web:install": "npm --prefix web install"
+    "web:install": "npm --prefix web install",
+    "api": "tsx scripts/api.ts",
+    "serve": "npm run web:build && tsx scripts/api.ts --static web/dist"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

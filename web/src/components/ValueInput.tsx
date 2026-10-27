@@ -26,14 +26,34 @@ export function ValueInput({
   op,
   kind,
   value,
+  choices,
   onChange,
 }: {
   op: ScalarOp;
   kind: "string" | "number" | "boolean" | "dateTime" | "array" | "object" | "any";
   value: JsonValue | undefined;
+  /** Known values for an enumerated field: a select instead of a text box. */
+  choices?: Array<{ value: string; label: string }>;
   onChange: (value: JsonValue | undefined) => void;
 }) {
   if (isUnary(op)) return null;
+
+  if (choices && (op === "eq" || op === "ne") && kind === "string") {
+    return (
+      <select
+        className="field grow"
+        value={typeof value === "string" ? value : ""}
+        onChange={(event) => onChange(event.target.value === "" ? undefined : event.target.value)}
+      >
+        <option value="">选一个值…</option>
+        {choices.map((choice) => (
+          <option key={choice.value} value={choice.value}>
+            {choice.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
 
   if (LIST.has(op)) {
     const text = Array.isArray(value) ? value.map((item) => String(item)).join(", ") : "";
@@ -116,7 +136,12 @@ export function ValueInput({
 
 /** A level select, used by the emit editor. */
 export function LevelSelect({ value, onChange }: { value: string; onChange: (level: string) => void }) {
-  const levels = ["none", "low", "medium", "high"];
+  const levels: Array<{ value: string; label: string }> = [
+    { value: "none", label: "无 · 关闭这条规则" },
+    { value: "low", label: "提示 · 蓝色，仅记录" },
+    { value: "medium", label: "警告 · 琥珀色，值得看一眼" },
+    { value: "high", label: "严重 · 红色，需要立刻处理" },
+  ];
   return (
     <select
       className="field"
@@ -127,8 +152,8 @@ export function LevelSelect({ value, onChange }: { value: string; onChange: (lev
       }}
     >
       {levels.map((level) => (
-        <option key={level} value={level}>
-          {level}
+        <option key={level.value} value={level.value}>
+          {level.label}
         </option>
       ))}
     </select>

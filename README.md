@@ -45,23 +45,27 @@ recorded then**, not from today's rules.
 
 ```bash
 ./start-chart.sh          # installs what is missing, then starts the editor
-./start-chart.sh check    # the 358 assertions
+./start-chart.sh api      # the rules API on http://127.0.0.1:5175 (for agents)
+./start-chart.sh serve    # build the editor, serve it + the API on one port
+./start-chart.sh check    # the 477 assertions
 ./start-chart.sh demo     # a real report, plus .chart/demo-events.json for the CLI
 ./start-chart.sh rules list
 ```
 
 On Windows, `start-chart.bat` takes the same arguments (`start`, `open`,
-`check`, `demo`, `rules`, `build`).
+`check`, `demo`, `rules`, `api`, `serve`, `build`).
 
 The same things as npm scripts, if you prefer:
 
 ```bash
 npm install
-npm run check    # facts, conditions, windows, phases, parity, modes, store, editor
+npm run check    # facts, conditions, windows, phases, parity, modes, store, editor, api
 npm run demo
 npm run rules -- list          # rule packs on disk
 npm run rules -- create work   # copy the defaults into an editable pack
 npm run web:install && npm run web    # the editor on http://localhost:5174
+npm run api                    # the rules API on http://127.0.0.1:5175
+npm run serve                  # the editor + the API on one port
 ```
 
 ## Use it
@@ -137,17 +141,73 @@ A report, in full:
 
 Both are data. Nothing is executed: no `eval`, no plugin loading, no network.
 
-`web/` is a React editor + simulator with three views, switched from the top bar:
+`web/` is a React editor + simulator with three views, switched from the top
+bar. The bar does two things only — switch views, and pick the **监护对象** (the
+session being observed).
 
-- **Report** — the run as a document (verdict, findings, stats, tables, world
-  line, evidence), sans-serif prose and monospace identifiers.
-- **Rules** — packs | rules | the selected rule, with a findings strip underneath
-  so an edit has feedback without a full report. Catalogue-driven condition
-  builder (compare / quantify / window) and a **preview on this run** button.
-- **Events** — the event stream as a form: add, edit, retime, reorder, and watch
-  the facts and findings move.
+- **监护报告** — four columns: the runs in the session, the events of the
+  selected run, the report, and the pack that judges it. The report is a
+  **playback**: play / pause, step, scrub, 0.5×–4×. Each frame reveals one more
+  event and re-judges the prefix, so a verdict is watched into existence instead
+  of appearing fully formed. The final frame is the settled run. The right column
+  names the pack and the rules it fired (and the ones still 待判读).
+- **规则编辑** — packs | rules | the rule. Rule cards are a fixed height and
+  reorder with a grip on the left (press, drag, the list opens a slot). The rule
+  panel is three numbered blocks: **信息** (name, description, tags, phase,
+  priority), **规则** (a plain-language reading, a preset palette, and
+  catalogue-driven condition rows: compare / quantify / window / sequence), and
+  **报告** (level, title with an insert-data menu, detail, evidence). Id, cooldown
+  and suppression hide under 更多设置.
+- **事件流** — runs | events | the event. Pick the round, pick the event, edit
+  it: type, time, the payload fields that matter for that type, and the raw JSON.
+  Cards reorder with the same grip; adding an event inserts before a trailing
+  `agent_end`.
+
+Judgement lives in the report and nowhere else: the editor and the event stream
+edit data, and only the report panel runs the pack. The editor also brings its
+own Chinese report spec (`web/src/lib/reports.ts`) — a spec is data, so this is
+not a renderer fork.
 
 See `web/README.md`.
+
+## Let an agent edit the rules
+
+The editor is a browser app, so it needs a seam that is not `localStorage`. That
+seam is `scripts/api.ts`: the same `PackStore` + `fsPackIO` the CLI uses, behind
+JSON endpoints on `127.0.0.1:5175`.
+
+```bash
+npm run api                       # http://127.0.0.1:5175, packs in .chart/rules
+curl -s localhost:5175/api/catalog | jq '.fields[] | select(.path|startswith("facts.commands"))'
+curl -s localhost:5175/api/packs/work/rules/run.failure-streak | jq
+```
+
+The loop an agent runs is: **read the catalog** (every field, operator, event
+type, window measure, level), **read the pack**, **PATCH or POST one rule**,
+**read the result**. Mutations return the new pack, so there is no re-read; an
+invalid rule is a `422` with paths into it (`rules[0].when.conditions[1].op`),
+not a silent no-op. There is no `eval` and no network call in the engine — the API
+only moves JSON.
+
+```bash
+# add a rule without touching the rest
+curl -s -X POST localhost:5175/api/packs/work/rules -H 'content-type: application/json' -d '{
+  "id": "user.burst", "name": "两分钟内连败三次", "phase": "live",
+  "when": { "combinator": "all", "conditions": [ { "window": {
+      "events": { "type": ["command"], "where": { "conditions": [ { "field": "payload.exitCode", "op": "ne", "value": 0 } ] } },
+      "span": { "lastMs": 120000 }, "measure": "count", "op": "gte", "value": 3 } } ] },
+  "emit": { "level": "high", "title": "最近两分钟连败", "tags": ["commands"], "evidence": ["facts.failed"] }
+}' | jq '.issues'
+
+# change one field, then reorder
+curl -s -X PATCH localhost:5175/api/packs/work/rules/user.burst -d '{"emit":{"level":"medium"}}' | jq '.rule.emit.level'
+curl -s -X POST localhost:5175/api/packs/work/rules/user.burst/move -d '{"index":0}'
+```
+
+The editor uses the same API when it is running (Vite proxies `/api`), so a rule
+edited in the browser is the file an agent edits with `curl`. When the API is not
+running the editor falls back to `localStorage` and the top bar says
+**浏览器** instead of **磁盘 · API**. Full reference: `docs/API.md`.
 
 Rules live in **packs on disk** (`<dir>/work.json` + `active.json`), the same
 layout Absence uses for egg-filters. The store validates before it writes,
@@ -169,11 +229,11 @@ src/
   store/     packStore.ts fs.ts                 — packs on disk (validated, atomic)
   editor/    catalog.ts draft.ts                — the model a rule editor needs
   adapters/  absence.ts                         — the only Absence-aware file
-test/        facts regimen defaults report      — 358 checks, one harness
-             store editor
-scripts/     check.ts demo.ts chart.ts          — chart.ts is the CLI host
+test/        facts regimen defaults report      — 477 checks, one harness
+             store editor api
+scripts/     check.ts demo.ts chart.ts api.ts    — chart.ts and api.ts are the hosts
 web/         React editor + simulator           — dev tool, not published
-docs/        DESIGN.md RULES.md REPORTS.md EDITOR.md
+docs/        DESIGN.md RULES.md REPORTS.md EDITOR.md API.md
 ```
 
 No runtime dependencies. `typescript` and `tsx` are dev-only.
@@ -202,10 +262,17 @@ Done and tested:
   `describeRule`, and `previewRule` (simulate one rule against the selected run)
 - the CLI host: `chart rules list|show|create|activate|delete|validate|format|
   preview|simulate|fields`
-- a visual editor (`web/`): three views — the run **Report** as a document, the
-  **Rules** editor with a live findings strip, and an **Events** form that edits
-  the stream and shows what it adds up to
+- the rules API (`scripts/api.ts`): packs over HTTP, validated before write,
+  `PATCH`/`POST`/`move` per rule, a `/api/catalog` of the whole language, and
+  `--static` to serve the built editor on the same port
+- a visual editor (`web/`): a four-column **report** with playback (play, step,
+  scrub, speed) that judges each revealed prefix; a **rules** editor with
+  drag-to-reorder cards and three blocks (信息 / 规则 / 报告), presets, and a
+  catalogue-driven condition builder; and an **events** editor with a detail
+  panel for one event. Judgement is confined to the report panel.
 - the default pack, byte-for-byte equivalent to Absence v0.4's attention rules
+  (the display strings are translated; reasons, levels, thresholds and phases are
+  unchanged)
 - report specs: header, verdict, findings, stats, table (sort/limit), list,
   timeline, evidence — plus a plain-text renderer
 - the Absence adapter

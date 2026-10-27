@@ -3,10 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Chart \u2014 a zero-intrusion observation engine for AI agents. Regimen is its rule engine.",
+  "description": "Chart — a zero-intrusion observation engine for AI agents. Regimen is its rule engine.",
   "exports": {
     ".": "./src/index.ts",
-    "./store/fs": "./src/store/fs.ts",
+    "./store/fs": {
+      "types": "./src/store/fs.ts",
+      "import": "./src/store/fs.ts",
+      "require": "./src/store/fs.ts"
+    },
     "./editor": "./src/editor/draft.ts",
     "./catalog": "./src/editor/catalog.ts"
   },

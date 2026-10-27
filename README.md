@@ -228,3 +228,10 @@ nesting.
    by `PackStore` over an HTTP `PackIO` (the server side is `fsPackIO`, next to
    `egg-filters/`). Keep Monaco for the raw-JSON escape hatch; the row builder is
    the primary path.
+
+**Status: all four phases have landed in Absence** — side by side first (the
+parity run: 534/534 runs identical after one recovery-detection fix), then the
+report and chimes pointed at Chart, a hash-chained `FindingRecord` persisted
+per settled run, the old engine deleted, and the REPORT WARN pane replaced by
+a rules pane over `PackStore` + `fsPackIO`. The integration side is documented
+in Absence's `docs/CHART.md`.

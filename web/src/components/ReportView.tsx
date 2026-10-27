@@ -19,6 +19,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChartEvent } from "../../../src/core/events.ts";
 import { DEFAULT_PACK } from "../../../src/regimen/defaults.ts";
+import { EXAMPLE_PACK } from "../../../src/regimen/examples.ts";
 import type { RulePack } from "../../../src/regimen/rule.ts";
 import type { PackSummary } from "../../../src/store/packStore.ts";
 import { observeRun, report } from "../../../src/index.ts";
@@ -265,6 +266,7 @@ export function ReportView({
             onChange={(event) => onSelectPack(event.target.value || undefined)}
           >
             <option value="">内置默认 · {DEFAULT_PACK.rules.length} 条</option>
+            <option value="@examples">示例规则 · {EXAMPLE_PACK.rules.length} 条 · 只读</option>
             {packs.map((summary) => (
               <option key={summary.name} value={summary.name}>
                 {summary.name} · {summary.rules} 条{summary.active ? " · 生效中" : ""}
@@ -283,7 +285,9 @@ export function ReportView({
               {activeName === packName ? "✓ 已生效" : "设为生效"}
             </button>
             <span className="spacer" />
-            <span className="tiny muted">{packName ? "已保存" : "只读"}</span>
+            <span className="tiny muted">
+              {packName === undefined || packName === "@examples" ? "只读" : "已保存"}
+            </span>
           </div>
 
           {playback ? (

@@ -110,7 +110,7 @@ relative to the array element. A missing path never matches a comparison.
 | `in`, `notIn` | `value` is an array of candidates |
 | `contains`, `notContains` | substring (string) or membership (array) |
 | `startsWith`, `endsWith` (+ `not*`) | string prefixes/suffixes |
-| `matches`, `notMatches` | RegExp, unanchored; pattern ≤ 256 chars, input ≤ 4 KiB |
+| `matches`, `notMatches` | RegExp, unanchored; pattern ≤ 256 chars, input ≤ 4 KiB. A leading `(?i)` means case-insensitive (JS has no inline flags) |
 | `glob`, `notGlob` | fnmatch: `*` within a segment, `**` across, `?` one char, `[abc]` / `[!abc]` a class, `\` escapes. A bare pattern also matches the file name. Works on any string, not just paths |
 | `exists`, `notExists` | the path resolves to something that is not null/undefined |
 | `empty`, `nonEmpty` | `""`, `[]`, `{}` / their negation |

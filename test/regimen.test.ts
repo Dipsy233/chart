@@ -15,6 +15,7 @@ import { renderTemplate, formatDuration, plural } from "../src/regimen/template.
 import { evaluate, emptyRuleState } from "../src/regimen/evaluate.ts";
 import { hashPack, mergePacks, orderedRules, validatePack, type RulePack } from "../src/regimen/rule.ts";
 import { DEFAULT_PACK } from "../src/regimen/defaults.ts";
+import { EXAMPLE_PACK } from "../src/regimen/examples.ts";
 import { factsOf, resetEventIds, session } from "./fixtures.ts";
 import type { ChartEvent } from "../src/core/events.ts";
 
@@ -102,6 +103,14 @@ check("notContains on an array", yes(one({ field: "facts.files.created", op: "no
 check("matches on a string", yes(one({ field: "facts.run.status", op: "matches", value: "^comp" })));
 check("notMatches", yes(one({ field: "facts.run.status", op: "notMatches", value: "^err" })));
 check("an invalid regex never matches", no(one({ field: "facts.run.status", op: "matches", value: "(" })));
+// JS has no inline flags, so `(?i)` is a leading marker, not a group.
+check("a leading (?i) makes matches case-insensitive", yes(one({ field: "facts.run.status", op: "matches", value: "(?i)^COMP" })));
+check("without it, case still matters", no(one({ field: "facts.run.status", op: "matches", value: "^COMP" })));
+check("(?i) in the middle is not a marker, so it does not compile", no(one({ field: "facts.run.status", op: "matches", value: "a(?i)b" })));
+check(
+  "validateWhen accepts a leading (?i)",
+  validateWhen({ conditions: [{ field: "facts.run.status", op: "matches", value: "(?i)comp" }] }).length === 0,
+);
 
 section("conditions: quantifiers");
 
@@ -890,6 +899,37 @@ section("sequences: evidence and templates");
   checkEqual("the rule fires once", result.findings.length, 1);
   check("the template reads the match", (result.findings[0]?.title ?? "").startsWith("1 flap · first evt_"));
   checkEqual("the evidence is the three events", result.findings[0]?.evidence.length, 3);
+}
+
+section("the example pack");
+
+{
+  // The example pack is documentation that runs, so a broken rule in it is a
+  // broken doc. Nothing exercised it before, and two `(?i)` regexes had been
+  // silently invalid — a rule that could never fire.
+  checkEqual("every example rule validates", validatePack(EXAMPLE_PACK), []);
+  checkEqual("and its ids are unique", new Set(EXAMPLE_PACK.rules.map((rule) => rule.id)).size, EXAMPLE_PACK.rules.length);
+
+  const claims = EXAMPLE_PACK.rules.find((rule) => rule.id === "example.claims-without-evidence")!;
+  // The rule holds a window condition, so it needs the events, not just the facts.
+  const runOf = (content: string) => {
+    resetEventIds();
+    const s = session();
+    s.agentStart();
+    s.command("ls", 0);
+    s.reply(content);
+    s.agentEnd("completed");
+    return s.events;
+  };
+  const fires = (content: string) => {
+    const events = runOf(content);
+    const facts = factsOf(events);
+    return evaluate({ version: 1, rules: [claims] }, { facts, live: {}, events, anchor: facts.lastActivityAt }).findings.length > 0;
+  };
+
+  check("a reply claiming tests with none run fires", fires("I ran the tests and they all pass."));
+  check("the match is case-insensitive", fires("All TESTS pass."));
+  check("a reply that does not mention tests is quiet", !fires("I read the file."));
 }
 
 finish();

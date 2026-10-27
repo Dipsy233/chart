@@ -10,7 +10,11 @@
  */
 
 import { DEFAULT_PACK } from "../../../src/regimen/defaults.ts";
+import { EXAMPLE_PACK } from "../../../src/regimen/examples.ts";
 import type { PackSummary } from "../../../src/store/packStore.ts";
+
+/** The read-only example pack, shown next to the defaults so it is discoverable. */
+export const EXAMPLE_PACK_NAME = "@examples";
 
 export function PackColumn({
   packs,
@@ -57,6 +61,16 @@ export function PackColumn({
           selected={packName === undefined}
           onSelect={() => onSelect(undefined)}
           onActivate={onActivate ? () => onActivate(undefined) : undefined}
+          compact={compact}
+        />
+        <PackRow
+          name={EXAMPLE_PACK_NAME}
+          label="示例规则"
+          count={EXAMPLE_PACK.rules.length}
+          active={false}
+          selected={packName === EXAMPLE_PACK_NAME}
+          onSelect={() => onSelect(EXAMPLE_PACK_NAME)}
+          hint="只读示例：看看规则语言能表达什么，想改先复制成自己的规则包"
           compact={compact}
         />
         {packs.map((summary) => (
@@ -114,6 +128,7 @@ function PackRow({
   onActivate,
   onDelete,
   compact,
+  hint,
 }: {
   name: string | undefined;
   label: string;
@@ -125,9 +140,10 @@ function PackRow({
   onActivate?: () => void;
   onDelete?: () => void;
   compact?: boolean;
+  hint?: string;
 }) {
   return (
-    <div className={`pack-row${selected ? " sel" : ""}`} onClick={onSelect} title={label}>
+    <div className={`pack-row${selected ? " sel" : ""}`} onClick={onSelect} title={hint ?? label}>
       <span className={`pack-dot${active ? " on" : ""}`} title={active ? "当前生效的规则包" : "未生效"}>
         {active ? "●" : "○"}
       </span>

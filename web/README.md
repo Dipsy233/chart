@@ -64,11 +64,11 @@ data edit, not a renderer edit.
 ```
 ┌ packs ────┬ rules ─────────────────┬ 1 信息 ─────────────┬ 原生 JSON ──────┐
 │ ● 内置默认│ ⠿ 代理带着错误停止     │ 名称 / 描述 / 标签   │ {                │
-│ ● work    │ ⠿ 未恢复的失败         │ 优先级 / 判读时机     │   "id": "run.…", │
-│ ＋新建     │ ⠿ 连续失败             │ 2 规则               │   "when": { … }, │
-│ { } 规则包 │ ⠿ 进程没收尾           │ 人话版 / 条件 / 预设  │   "when": { … }  │
-│ 导入 下载 │ …                      │ 3 报告               │ }                │
-│           │                        │ 级别 / 标题 / 证据    │ [放大]           │
+│   示例规则│ ⠿ 未恢复的失败         │ 优先级 / 判读时机     │   "id": "run.…", │
+│ ● work    │ ⠿ 连续失败             │ 2 规则               │   "when": { … }, │
+│ ＋新建     │ ⠿ 进程没收尾           │ 人话版 / 条件 / 预设  │   "when": { … }  │
+│ { } 规则包 │ …                      │ 3 报告               │ }                │
+│ 导入 下载 │                        │ 级别 / 标题 / 证据    │ [放大]           │
 └───────────┴────────────────────────┴──────────────────────┴──────────────────┘
 ```
 
@@ -139,6 +139,11 @@ payload fields the catalogue says matter, and the raw JSON one disclosure away.
 **全部事件** shows the whole stream instead of one round, for edits that cross a
 run boundary. Adding an event inserts after the selected card, and before a
 trailing `agent_end` (anything after it belongs to no run).
+
+The pack column lists the built-in defaults, a read-only **示例规则** pack
+(`EXAMPLE_PACK` — eight rules that each demonstrate one capability of the
+language: globs on files, a window, a sequence, a quantifier, a regex), and then
+your own packs. Both read-only entries fork on the first edit.
 
 ## Why no node canvas
 

@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_PACK,
+  EXAMPLE_PACK,
   PackStore,
   isIdTaken,
   parsePack,
@@ -34,7 +35,7 @@ import { DEMOS } from "./lib/demo.ts";
 import { renumber } from "./lib/events.ts";
 import { pickRunView, runViews } from "./lib/runs.ts";
 import { RULE_TEMPLATES } from "./lib/plain.ts";
-import { PackColumn } from "./components/PackColumn.tsx";
+import { EXAMPLE_PACK_NAME, PackColumn } from "./components/PackColumn.tsx";
 import { JsonDialog } from "./components/JsonDialog.tsx";
 import { RuleCardList } from "./components/RuleCardList.tsx";
 import { RuleEditor } from "./components/RuleEditor.tsx";
@@ -114,7 +115,9 @@ export function App() {
   const persist = useCallback(
     async (name: string | undefined, next: RulePack) => {
       setPack(next);
-      if (!name) return; // the built-in defaults are read-only
+      // The built-in defaults and the example pack are not files: an edit has to
+      // fork into a real pack first, and the editor says so.
+      if (!name || name === EXAMPLE_PACK_NAME) return;
       try {
         await store.save(name, next, { force: true });
         await refreshPacks();
@@ -150,7 +153,12 @@ export function App() {
     // `undefined` means the built-in defaults, not "the active pack": the pack
     // list already shows which pack is active, and picking the defaults has to
     // pick the defaults even when another pack is active.
-    const loaded = name === undefined ? DEFAULT_PACK : await store.load(name).catch(() => DEFAULT_PACK);
+    const loaded =
+      name === undefined
+        ? DEFAULT_PACK
+        : name === EXAMPLE_PACK_NAME
+          ? structuredClone(EXAMPLE_PACK)
+          : await store.load(name).catch(() => DEFAULT_PACK);
     setPackName(name);
     setPack(loaded);
     setSelectedRuleId(loaded.rules[0]?.id);
@@ -362,7 +370,7 @@ export function App() {
               key={selectedRule.id}
               rule={selectedRule}
               pack={pack}
-              readOnly={packName === undefined}
+              readOnly={packName === undefined || packName === EXAMPLE_PACK_NAME}
               onFork={() => void createPack()}
               onChange={updateRule}
               onDelete={() => deleteRule(selectedRule)}
@@ -418,13 +426,19 @@ export function App() {
 
       {packJsonOpen ? (
         <JsonDialog
-          title={packName ? `规则包「${packName}」` : "内置默认规则包"}
-          subtitle={`${pack.rules.length} 条规则${packName ? "" : " · 只读，应用会先复制成新的规则包"}`}
+          title={
+            packName === EXAMPLE_PACK_NAME
+              ? "示例规则包"
+              : packName
+                ? `规则包「${packName}」`
+                : "内置默认规则包"
+          }
+          subtitle={`${pack.rules.length} 条规则${packName === EXAMPLE_PACK_NAME ? " · 只读示例，应用会先复制成新的规则包" : packName ? "" : " · 只读，应用会先复制成新的规则包"}`}
           value={pack}
           onClose={() => setPackJsonOpen(false)}
           onCopied={(ok) => notify(ok ? "已复制规则包 JSON" : "复制失败，请手动选择文本", ok ? "info" : "error")}
           actions={
-            packName ? (
+            packName && packName !== EXAMPLE_PACK_NAME ? (
               <button
                 className="btn tiny"
                 onClick={() => downloadPack(packName, serializePack(pack))}
@@ -442,9 +456,9 @@ export function App() {
                 notify(`规则包有 ${issues.length} 处问题，已拒绝应用`, "error");
                 return;
               }
-              if (packName === undefined) {
+              if (packName === undefined || packName === EXAMPLE_PACK_NAME) {
                 const name = window.prompt(
-                  "这是内置默认规则包（只读）。要应用到哪个规则包?输入一个新名字会新建一份。",
+                  "这份规则包是只读的。要应用到哪个规则包?输入一个新名字会新建一份。",
                   "work",
                 );
                 if (!name) return;

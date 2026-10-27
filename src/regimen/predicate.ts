@@ -152,12 +152,23 @@ const regexCache = new Map<string, RegExp | undefined>();
 const MAX_PATTERN = 256;
 const MAX_REGEX_INPUT = 4096;
 
+/**
+ * Compile a `matches` pattern.
+ *
+ * A leading `(?i)` is accepted and turned into the `i` flag: it is how people
+ * (and most other regex flavours) write "case-insensitive", and JS `RegExp`
+ * throws on it as an inline group. Only the *leading* form is special, so a
+ * pattern that legitimately contains `(?i)` elsewhere is untouched.
+ */
 function regex(pattern: string): RegExp | undefined {
   if (pattern.length === 0 || pattern.length > MAX_PATTERN) return undefined;
-  if (regexCache.has(pattern)) return regexCache.get(pattern);
+  const cached = regexCache.get(pattern);
+  if (cached !== undefined || regexCache.has(pattern)) return cached;
+  const insensitive = pattern.startsWith("(?i)");
+  const source = insensitive ? pattern.slice(4) : pattern;
   let compiled: RegExp | undefined;
   try {
-    compiled = new RegExp(pattern);
+    compiled = insensitive ? new RegExp(source, "i") : new RegExp(source);
   } catch {
     compiled = undefined;
   }
@@ -473,7 +484,11 @@ function validateCondition(condition: unknown, path: string, allowWindow: boolea
     if (typeof pattern !== "string") {
       issues.push({ path: `${path}.value`, message: "matches needs a regex string" });
     } else if (regex(pattern) === undefined) {
-      issues.push({ path: `${path}.value`, message: "invalid or oversized regex" });
+      issues.push({
+        path: `${path}.value`,
+        message:
+          "this regex does not compile — JS has no inline flags, so write case-insensitive as a leading (?i), or spell out the character classes",
+      });
     }
   }
   return issues;

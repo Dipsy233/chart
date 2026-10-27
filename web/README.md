@@ -63,14 +63,21 @@ data edit, not a renderer edit.
 
 ```
 ┌ packs ────┬ rules ─────────────────┬ 1 信息 ─────────────┬ 原生 JSON ──────┐
-│ ● 内置默认│ ⠿ 代理带着错误停止     │ 名称 / 描述 / 标签   │ {                │
-│   示例规则│ ⠿ 未恢复的失败         │ 优先级 / 判读时机     │   "id": "run.…", │
-│ ● work    │ ⠿ 连续失败             │ 2 规则               │   "when": { … }, │
+│ ●内置默认 │ ⠿ 代理带着错误停止     │ 名称 / 描述 / 标签   │ {                │
+│ ○示例规则 │ ⠿ 未恢复的失败         │ 优先级 / 判读时机     │   "id": "run.…", │
+│ ○work     │ ⠿ 连续失败             │ 2 规则               │   "when": { … }, │
 │ ＋新建     │ ⠿ 进程没收尾           │ 人话版 / 条件 / 预设  │   "when": { … }  │
 │ { } 规则包 │ …                      │ 3 报告               │ }                │
 │ 导入 下载 │                        │ 级别 / 标题 / 证据    │ [放大]           │
 └───────────┴────────────────────────┴──────────────────────┴──────────────────┘
 ```
+
+**The dot before a pack name is the switch.** Click it and that pack becomes
+**生效** (filled green); click the rest of the row and you open the pack for
+editing. There is no separate 设为生效 button and no `✓` to read past — one
+control per row, and the active pack is the one with the lit dot. The read-only
+**示例规则** entry has no switch (its dot is inert), because a pack that is not a
+file cannot be made active.
 
 **Order is evaluation order.** The grip on the left of every card is the only
 reorder affordance: press, drag, and the list opens a slot under the pointer.
@@ -143,7 +150,8 @@ trailing `agent_end` (anything after it belongs to no run).
 The pack column lists the built-in defaults, a read-only **示例规则** pack
 (`EXAMPLE_PACK` — eight rules that each demonstrate one capability of the
 language: globs on files, a window, a sequence, a quantifier, a regex), and then
-your own packs. Both read-only entries fork on the first edit.
+your own packs. Both read-only entries fork on the first edit. The dot in front
+of a row is the 生效 switch; the row itself opens the pack.
 
 ## Why no node canvas
 
@@ -175,6 +183,13 @@ Either way, a pack can be moved as JSON:
 That is the distribution path: send a pack (or one rule) to another person or a
 model, and paste it back. A pack can be *selected* (the lens) without being
 *active* (the one the observer uses); the report column shows both.
+
+Every question the editor asks is asked **in the page**, never by
+`window.prompt` / `window.confirm`: naming a new pack opens a small dialog with
+the name rules stated inline (the confirm button stays disabled until the name is
+valid, and a taken name says so), and deleting a pack opens a confirm dialog that
+names what is lost, focuses 取消, and closes on Esc. The pack name rules are the
+store's own — the dialog validates with the same `PACK_NAME_RE` the writer uses.
 
 ## Not part of the library
 

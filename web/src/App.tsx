@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_PACK,
   EXAMPLE_PACK,
+  PACK_NAME_RE,
   PackStore,
   isIdTaken,
   parsePack,
@@ -36,6 +37,7 @@ import { renumber } from "./lib/events.ts";
 import { pickRunView, runViews } from "./lib/runs.ts";
 import { RULE_TEMPLATES } from "./lib/plain.ts";
 import { EXAMPLE_PACK_NAME, PackColumn } from "./components/PackColumn.tsx";
+import { ConfirmDialog, PromptDialog } from "./components/PromptDialog.tsx";
 import { JsonDialog } from "./components/JsonDialog.tsx";
 import { RuleCardList } from "./components/RuleCardList.tsx";
 import { RuleEditor } from "./components/RuleEditor.tsx";
@@ -45,6 +47,29 @@ import { EventStreamEditor } from "./components/EventStreamEditor.tsx";
 const store = new PackStore(adaptivePackIO(), DEFAULT_PACK);
 
 type View = "report" | "rules" | "events";
+
+/** Which name dialog is open, and what to do with the answer. */
+type PackPrompt =
+  | { kind: "create" }
+  | { kind: "apply"; pack: RulePack };
+
+/** A name the dialog can offer, that does not collide with an existing pack. */
+function freePackName(taken: readonly string[], base = "work"): string {
+  if (!taken.includes(base)) return base;
+  let counter = 2;
+  while (taken.includes(`${base}-${counter}`)) counter += 1;
+  return `${base}-${counter}`;
+}
+
+/** The same rules the store enforces, said in Chinese for the dialog. */
+function packNameProblem(name: string, taken: readonly string[], allowExisting: boolean): string | undefined {
+  if (name === "") return "名字不能为空";
+  if (!PACK_NAME_RE.test(name)) return "只能用字母、数字、. - _，最多 64 个字符";
+  if (name === "active") return "「active」是保留名，换一个";
+  if (name === EXAMPLE_PACK_NAME) return `「${EXAMPLE_PACK_NAME}」是只读示例包的名字，换一个`;
+  if (!allowExisting && taken.includes(name)) return `已经有名为「${name}」的规则包了`;
+  return undefined;
+}
 
 export function App() {
   const [view, setView] = useState<View>("report");
@@ -61,6 +86,8 @@ export function App() {
 
   const [templateOpen, setTemplateOpen] = useState(false);
   const [packJsonOpen, setPackJsonOpen] = useState(false);
+  const [packPrompt, setPackPrompt] = useState<PackPrompt | undefined>(undefined);
+  const [packToDelete, setPackToDelete] = useState<string | undefined>(undefined);
   const [backend, setBackend] = useState<Backend | undefined>(undefined);
   const [toast, setToast] = useState<{ text: string; tone: "info" | "error" } | undefined>(undefined);
   const toastTimer = useRef<number | undefined>(undefined);
@@ -164,10 +191,28 @@ export function App() {
     setSelectedRuleId(loaded.rules[0]?.id);
   };
 
-  const createPack = async () => {
-    const name = window.prompt("新规则包的名字(字母、数字、. - _)", "work");
-    if (!name) return;
+  const createPack = () => {
+    setPackPrompt({ kind: "create" });
+  };
+
+  /** The name dialog's answer: create a pack, or fork a read-only one. */
+  const namePack = async (name: string) => {
+    const pending = packPrompt;
+    if (!pending) return;
     try {
+      if (pending.kind === "apply") {
+        // A pasted pack: the name may already exist, and applying then means
+        // replacing that file — the dialog says so before you press the button.
+        await store.save(name, pending.pack, { force: true });
+        await refreshPacks();
+        setPackName(name);
+        setPack(pending.pack);
+        setSelectedRuleId(pending.pack.rules[0]?.id);
+        notify(`已应用到「${name}」`);
+        setPackPrompt(undefined);
+        setPackJsonOpen(false);
+        return;
+      }
       // Copy what is on screen, not the pristine defaults: a user who dragged a
       // rule before forking should keep the order they just chose.
       const next: RulePack = { ...structuredClone(pack), name };
@@ -177,6 +222,8 @@ export function App() {
       setPackName(name);
       setPack(next);
       setSelectedRuleId(next.rules[0]?.id);
+      notify(`已新建规则包「${name}」`);
+      setPackPrompt(undefined);
     } catch (error) {
       notify(error instanceof Error ? error.message : String(error), "error");
     }
@@ -193,10 +240,15 @@ export function App() {
   };
 
   const deletePack = async (name: string) => {
-    if (!window.confirm(`确定删除规则包「${name}」吗？`)) return;
-    await store.remove(name);
-    await refreshPacks();
-    if (packName === name) await openPack(undefined);
+    try {
+      await store.remove(name);
+      await refreshPacks();
+      if (packName === name) await openPack(undefined);
+      notify(`已删除规则包「${name}」`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error), "error");
+    }
+    setPackToDelete(undefined);
   };
 
   /* ── rules ──────────────────────────────────────────────── */
@@ -317,9 +369,9 @@ export function App() {
             packs={packs}
             packName={packName}
             onSelect={(name) => void openPack(name)}
-            onCreate={() => void createPack()}
+            onCreate={() => createPack()}
             onActivate={(name) => void activatePack(name)}
-            onDelete={(name) => void deletePack(name)}
+            onDelete={(name) => setPackToDelete(name)}
             onImport={() => packInput.current?.click()}
             onExport={() => packName && downloadPack(packName, serializePack(pack))}
             onShowJson={() => setPackJsonOpen(true)}
@@ -371,7 +423,7 @@ export function App() {
               rule={selectedRule}
               pack={pack}
               readOnly={packName === undefined || packName === EXAMPLE_PACK_NAME}
-              onFork={() => void createPack()}
+              onFork={() => createPack()}
               onChange={updateRule}
               onDelete={() => deleteRule(selectedRule)}
               onDuplicate={() => duplicateRule(selectedRule)}
@@ -457,29 +509,60 @@ export function App() {
                 return;
               }
               if (packName === undefined || packName === EXAMPLE_PACK_NAME) {
-                const name = window.prompt(
-                  "这份规则包是只读的。要应用到哪个规则包?输入一个新名字会新建一份。",
-                  "work",
-                );
-                if (!name) return;
-                await store.save(name, next, { force: true });
-                await refreshPacks();
-                setPackName(name);
-                setPack(next);
-                setSelectedRuleId(next.rules[0]?.id);
-                notify(`已新建并应用「${name}」`);
-              } else {
-                await store.save(packName, next, { force: true });
-                await refreshPacks();
-                setPack(next);
-                setSelectedRuleId(next.rules[0]?.id);
-                notify(`已应用到「${packName}」`);
+                // Read-only: ask for a name in the editor's own dialog, then
+                // fork. `namePack` keeps the parsed pack until you answer.
+                setPackPrompt({ kind: "apply", pack: next });
+                return;
               }
+              await store.save(packName, next, { force: true });
+              await refreshPacks();
+              setPack(next);
+              setSelectedRuleId(next.rules[0]?.id);
+              notify(`已应用到「${packName}」`);
               setPackJsonOpen(false);
             } catch (error) {
               notify(error instanceof Error ? error.message : String(error), "error");
             }
           }}
+        />
+      ) : null}
+
+      {packPrompt ? (
+        <PromptDialog
+          title={packPrompt.kind === "create" ? "＋ 新建规则包" : "应用到新的规则包"}
+          subtitle={
+            packPrompt.kind === "create"
+              ? "会把你现在看到的规则（包括刚才拖出来的顺序）复制成一份可编辑的规则包，并设为生效。"
+              : "这份规则包是只读的，先给它一个名字，会新建一份并应用。"
+          }
+          label="规则包名字"
+          placeholder="work"
+          initialValue={freePackName(packs.map((summary) => summary.name))}
+          validate={(value) =>
+            packNameProblem(value, packs.map((summary) => summary.name), packPrompt.kind === "apply")
+          }
+          hint={
+            packPrompt.kind === "create"
+              ? "不能和已有的规则包重名。"
+              : "重名会覆盖同名文件；想保留旧的，就换个名字。"
+          }
+          confirmText={packPrompt.kind === "create" ? "新建" : "新建并应用"}
+          onConfirm={(name) => namePack(name)}
+          onClose={() => setPackPrompt(undefined)}
+        />
+      ) : null}
+
+      {packToDelete ? (
+        <ConfirmDialog
+          title="删除规则包"
+          message={`确定删除规则包「${packToDelete}」吗？它的规则会一起删掉，不能撤销。`}
+          detail={
+            packToDelete === packs.find((summary) => summary.active)?.name
+              ? "它正在生效，删掉后回到内置默认规则包。"
+              : "内置默认和示例规则包不受影响。"
+          }
+          onConfirm={() => deletePack(packToDelete)}
+          onClose={() => setPackToDelete(undefined)}
         />
       ) : null}
 

@@ -151,7 +151,11 @@ session being observed).
   event and re-judges the prefix, so a verdict is watched into existence instead
   of appearing fully formed. The final frame is the settled run. The right column
   names the pack and the rules it fired (and the ones still 待判读).
-- **规则编辑** — packs | rules | the rule. Rule cards are a fixed height and
+- **规则编辑** — packs | rules | the rule. In the packs column the **dot in
+  front of a pack is the switch**: click it to make that pack 生效 (it fills
+  green), click the row itself to open the pack — there is no 设为生效 button and
+  no ✓. Creating or deleting a pack asks in an in-page dialog, not a browser
+  prompt. Rule cards are a fixed height and
   reorder with a grip on the left (press, drag, the list opens a slot); the
   attention level is the card's frame colour, not a chip inside it, and the id
   gets its own line. The rule panel is three numbered blocks: **信息** (name,

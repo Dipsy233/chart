@@ -1,9 +1,10 @@
 /**
  * The pack column.
  *
- * A pack is a set of rules on disk (or the built-in defaults). Selecting one
- * changes what the report simulates with; the `●` marks the pack that is
- * *active*, which is a different thing and is why the row has its own toggle.
+ * A pack is a set of rules on disk (or the built-in defaults). Selecting a row
+ * opens that pack for editing; the dot before the name is the switch — click it
+ * to make that pack the *active* one. One control per row, and the dot is it:
+ * there is no separate 设为生效 button and no `✓` to read past.
  *
  * The rules view gets the full column (new / import / export / delete); the
  * report view gets the compact one, because it only needs to pick a lens.
@@ -144,24 +145,28 @@ function PackRow({
 }) {
   return (
     <div className={`pack-row${selected ? " sel" : ""}`} onClick={onSelect} title={hint ?? label}>
-      <span className={`pack-dot${active ? " on" : ""}`} title={active ? "当前生效的规则包" : "未生效"}>
-        {active ? "●" : "○"}
-      </span>
-      <span className="pack-name">{label}</span>
-      {issues ? <span className="pack-bad" title={`${issues} 处问题`}>!</span> : null}
-      <span className="pack-count">{count}</span>
       {onActivate ? (
         <button
-          className="btn tiny ghost"
-          title={active ? "已是生效规则包" : "设为生效规则包"}
+          type="button"
+          className={`pack-dot${active ? " on" : ""}`}
+          aria-pressed={active}
+          aria-label={active ? `${label} 已是生效规则包` : `把 ${label} 设为生效规则包`}
+          title={active ? "当前生效的规则包" : "点一下设为生效"}
           onClick={(event) => {
+            // The dot switches packs; the rest of the row opens the pack.
             event.stopPropagation();
             onActivate();
           }}
-        >
-          {active ? "✓" : "设为生效"}
-        </button>
-      ) : null}
+        />
+      ) : (
+        <span
+          className={`pack-dot static${active ? " on" : ""}`}
+          title={active ? "当前生效的规则包" : "未生效"}
+        />
+      )}
+      <span className="pack-name">{label}</span>
+      {issues ? <span className="pack-bad" title={`${issues} 处问题`}>!</span> : null}
+      <span className="pack-count">{count}</span>
       {!compact && onDelete ? (
         <button
           className="btn tiny ghost danger"

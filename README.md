@@ -152,12 +152,15 @@ session being observed).
   of appearing fully formed. The final frame is the settled run. The right column
   names the pack and the rules it fired (and the ones still 待判读).
 - **规则编辑** — packs | rules | the rule. Rule cards are a fixed height and
-  reorder with a grip on the left (press, drag, the list opens a slot). The rule
-  panel is three numbered blocks: **信息** (name, description, tags, phase,
-  priority), **规则** (a plain-language reading, a preset palette, and
-  catalogue-driven condition rows: compare / quantify / window / sequence), and
-  **报告** (level, title with an insert-data menu, detail, evidence). Id, cooldown
-  and suppression hide under 更多设置.
+  reorder with a grip on the left (press, drag, the list opens a slot); the
+  attention level is the card's frame colour, not a chip inside it, and the id
+  gets its own line. The rule panel is three numbered blocks: **信息** (name,
+  description, tags, priority), **规则** (a plain-language reading, a preset
+  palette, and catalogue-driven condition rows: compare / quantify / window /
+  sequence), and **报告** (level, title with an insert-data menu, detail,
+  evidence). **判读时机 is derived, not chosen**: no `facts.ended` condition means
+  `both`, `ended = true` means `settled`, `ended = false` means `live`. Id,
+  cooldown and suppression hide under 更多设置.
 - **事件流** — runs | events | the event. Pick the round, pick the event, edit
   it: type, time, the payload fields that matter for that type, and the raw JSON.
   Cards reorder with the same grip; adding an event inserts before a trailing

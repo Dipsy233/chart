@@ -115,10 +115,10 @@ The pane Absence needs (and that this model was shaped for):
 
 ```
 ┌ packs ──────────┬ rules ────────────────────────┬ rule ─────────────────────┐
-│ ● work          │ ⠿ 代理带着错误停止     严重   │ 1 信息                     │
-│   personal      │ ⠿ 未恢复的失败         严重   │   名称 / 描述 / 标签       │
-│ + new name      │ ⠿ 失败命令             提示   │   判读时机 / 优先级        │
-│ import export   │ ⠿ 进程没收尾           严重   │ 2 规则                     │
+│ ● work          │ ⠿ 代理带着错误停止            │ 1 信息                     │
+│   personal      │ ⠿ 未恢复的失败                │   名称 / 描述 / 标签       │
+│ + new name      │ ⠿ 失败命令                    │   优先级                    │
+│ import export   │ ⠿ 进程没收尾                  │ 2 规则                     │
 │                 │ …                             │   人话版：当 … 时，发出…     │
 │                 │                               │   [全部满足] ＋比较 ＋统计  │
 │                 │                               │   条件卡片 …               │
@@ -141,7 +141,7 @@ The pieces, and where each comes from:
 | UI piece | Data source |
 |---|---|
 | pack list, `●` active marker, health | `store.list()` |
-| rule list with level/phase | `pack.rules` + `describeRule` |
+| rule list (level as the card's frame colour) | `pack.rules` + `describeRule` |
 | field picker | `allFields()` / `eventFields(types)` |
 | operator picker | `operatorsForField(path)` |
 | enumerated value select | the catalogue's path → known values |

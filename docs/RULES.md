@@ -45,7 +45,7 @@ combinator, so a tree cannot be built by accident.
 |---|---|
 | `id` | Stable, unique. Used in `suppresses` and as the finding's `reason` by default. |
 | `name`, `description` | For the editor. Never evaluated. |
-| `phase` | `live` / `settled` / `both` (default). Which pass may judge it. |
+| `phase` | `live` / `settled` / `both` (default). Which pass may judge it. Optional: the editor derives it from a `facts.ended` condition (see below) and omits the field for `both`. |
 | `priority` | Higher evaluates first. Ties keep the order in the file. |
 | `when` | `{ combinator?, conditions[] }`. Required. |
 | `emit.level` | `none` / `low` / `medium` / `high`. `none` switches the rule **off**. |

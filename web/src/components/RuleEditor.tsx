@@ -3,7 +3,7 @@
  *
  * Three numbered blocks, in the order a rule is thought about:
  *
- *   1 信息   what this rule is called, what it is for, when it is judged
+ *   1 信息   what this rule is called, what it is for
  *   2 规则   the conditions: the only part that needs the rule language
  *   3 报告   what the report says when it fires, and what evidence it points at
  *
@@ -12,16 +12,21 @@
  * the report is the answer.
  *
  * The plain-language reading sits above the conditions, so the controls and the
- * sentence cannot drift apart. Everything a beginner never needs (id, priority,
- * cooldown, suppression, reason) is in a collapsed "更多设置".
+ * sentence cannot drift apart. Everything a beginner never needs (id, phase,
+ * priority, cooldown, suppression, reason) is in a collapsed "更多设置".
+ *
+ * `phase` is deliberately *not* a first-class control any more: "only judge this
+ * once the run has ended" is already a condition (`facts.ended = true`), and two
+ * ways to say the same thing is one too many. The field survives in the data (and
+ * in 更多设置) because the engine still filters by it.
  */
 
 import { useMemo, useRef, useState } from "react";
-import { isIdTaken, suggestId, validateRule } from "../../../src/editor/draft.ts";
+import { isIdTaken, phaseFromWhen, suggestId, validateRule, withDerivedPhase } from "../../../src/editor/draft.ts";
 import type { Rule, RulePack } from "../../../src/regimen/rule.ts";
 import type { AttentionLevel } from "../../../src/core/types.ts";
 import { ConditionList } from "./Conditions.tsx";
-import { describeRuleZh, EVIDENCE_CHOICES, TEMPLATE_VARS, zhEvidence, zhLevel, zhPhase } from "../lib/plain.ts";
+import { describeRuleZh, EVIDENCE_CHOICES, TEMPLATE_VARS, zhEvidence, zhLevel } from "../lib/plain.ts";
 import { TagChips } from "./TagChips.tsx";
 import { JsonDialog } from "./JsonDialog.tsx";
 
@@ -61,6 +66,11 @@ export function RuleEditor({
   const level = rule.emit.level;
 
   const patchEmit = (patch: Partial<Rule["emit"]>) => onChange({ ...rule, emit: { ...rule.emit, ...patch } });
+
+  // Every condition edit re-derives `phase`: "when is this judged" is answered
+  // by the conditions themselves, so there is no second control to keep in sync.
+  const patchWhen = (when: Rule["when"]) => onChange(withDerivedPhase({ ...rule, when }));
+  const derivedPhase = phaseFromWhen(rule.when);
 
   const insertVariable = (expression: string) => {
     const input = titleRef.current;
@@ -161,39 +171,34 @@ export function RuleEditor({
             <span className="zh-hint">报告里可以按标签筛选。卡片上显示所有标签，超出部分截断。</span>
           </div>
 
-          <div className="grid2">
-            <div className="stack" style={{ gap: 4 }}>
-              <span className="label">判读时机</span>
-              <div className="segmented">
-                {(["live", "settled", "both"] as const).map((phase) => (
-                  <button
-                    key={phase}
-                    className={(rule.phase ?? "both") === phase ? "on" : ""}
-                    onClick={() => onChange({ ...rule, phase })}
-                  >
-                    {zhPhase(phase)}
-                  </button>
-                ))}
-              </div>
-              <span className="zh-hint">
-                {(rule.phase ?? "both") === "live"
-                  ? "只在这一轮还在进行时判读"
-                  : (rule.phase ?? "both") === "settled"
-                    ? "只在这一轮结束后判读"
-                    : "进行中和结束后都判读"}
-              </span>
-            </div>
+          <div className="stack" style={{ gap: 4 }}>
+            <span className="label">优先级</span>
+            <input
+              className="field"
+              type="number"
+              value={rule.priority ?? 0}
+              onChange={(event) => onChange({ ...rule, priority: Number(event.target.value) })}
+            />
+            <span className="zh-hint">数字大的先判读，一般不用改。</span>
+          </div>
 
-            <div className="stack" style={{ gap: 4 }}>
-              <span className="label">优先级</span>
-              <input
-                className="field"
-                type="number"
-                value={rule.priority ?? 0}
-                onChange={(event) => onChange({ ...rule, priority: Number(event.target.value) })}
-              />
-              <span className="zh-hint">数字大的先判读，一般不用改。</span>
-            </div>
+          <div className="stack" style={{ gap: 3 }}>
+            <span className="label">判读时机</span>
+            <span className="derived-phase">
+              <span className={`chip ${derivedPhase}`}>
+                {derivedPhase === "live" ? "运行中" : derivedPhase === "settled" ? "结束后" : "全程"}
+              </span>
+              <span className="zh-hint">
+                {derivedPhase === "live"
+                  ? "条件要求「这一轮还没结束」，所以只会在运行中判读。"
+                  : derivedPhase === "settled"
+                    ? "条件要求「这一轮已结束」，所以只在运行结束后判读。"
+                    : "条件里没有提到「这一轮是否已结束」，运行中和结束后都会判读。"}
+              </span>
+            </span>
+            <span className="zh-hint">
+              由「规则」里的条件自动决定：加一条「这一轮是否已结束 = 是」就是结束后判读，= 否 就是运行中判读。
+            </span>
           </div>
 
           <details className="adv">
@@ -270,7 +275,7 @@ export function RuleEditor({
             这条规则的意思是：<b>{describeRuleZh(rule)}</b>
           </div>
 
-          <ConditionList when={rule.when} onChange={(when) => onChange({ ...rule, when })} />
+          <ConditionList when={rule.when} onChange={patchWhen} />
         </section>
 
         {/* ── 3 报告 ─────────────────────────────────────────── */}
@@ -443,8 +448,7 @@ export function RuleEditor({
             onChange(next);
             setJsonOpen(false);
           }}
-        />
-      ) : null}
+        />      ) : null}
     </div>
   );
 }

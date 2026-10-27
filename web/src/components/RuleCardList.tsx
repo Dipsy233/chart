@@ -5,11 +5,17 @@
  * buttons per card. The grip on the left is the whole affordance: press, drag,
  * and the list opens a slot under the pointer.
  *
- * Three lines, one per fact a reader needs:
+ * Four lines, one per fact a reader needs:
  *
- *   name                                   level
- *   description (what the rule is for)     ← truncated
- *   tag · phase                            id (truncated)
+ *   name
+ *   description (what the rule is for)      ← truncated
+ *   id (the machine key, full width)        ← truncated
+ *   tag · tag · tag
+ *
+ * The level is **not** a chip inside the card: it is the card's own border and
+ * left edge (red = critical, amber = warning, blue = info), so the column reads
+ * top-to-bottom at a glance. The live/settled phase is an engine detail and is
+ * not shown here at all.
  *
  * Cards never grow: every line is single-line with an ellipsis, and the editor on
  * the right is where the full text lives. Nothing here shows whether a rule fired
@@ -18,10 +24,9 @@
 
 import type { CSSProperties } from "react";
 import type { Rule } from "../../../src/regimen/rule.ts";
-import { zhLevel, zhPhase } from "../lib/plain.ts";
 import { useDragSort } from "./useDragSort.ts";
 
-export const RULE_CARD_HEIGHT = 82;
+export const RULE_CARD_HEIGHT = 96;
 const RULE_CARD_GAP = 6;
 
 export function RuleCardList({
@@ -41,14 +46,15 @@ export function RuleCardList({
     <div ref={sort.listRef} className="sortable rule-cards">
       {rules.map((rule, position) => {
         const off = rule.enabled === false || rule.emit.level === "none";
+        const level = off ? "off" : rule.emit.level;
         const tags = rule.emit.tags ?? [];
         return (
           <div
             key={rule.id}
             className={[
               "rule-card",
+              level,
               rule.id === selectedId ? "sel" : "",
-              off ? "off" : "",
               sort.dragging === position ? "dragging" : "",
             ]
               .filter(Boolean)
@@ -62,11 +68,16 @@ export function RuleCardList({
             </span>
             <div className="rule-card-main">
               <div className="rule-card-line">
-                <span className="rule-name">{rule.name || rule.id}</span>
-                <span className={`chip ${off ? "off" : rule.emit.level}`}>{off ? "关闭" : zhLevel(rule.emit.level)}</span>
+                <span className="rule-card-name">{rule.name || rule.id}</span>
+                {off ? <span className="rule-card-off">已停用</span> : null}
               </div>
               <div className="rule-card-line">
-                <span className="rule-desc">{rule.description || "（没有描述）"}</span>
+                <span className="rule-card-desc">{rule.description || "（没有描述）"}</span>
+              </div>
+              <div className="rule-card-line">
+                <span className="rule-card-id" title={rule.id}>
+                  {rule.id}
+                </span>
               </div>
               <div className="rule-card-line">
                 {tags.length > 0 ? (
@@ -80,9 +91,6 @@ export function RuleCardList({
                 ) : (
                   <span className="rule-tag empty">无标签</span>
                 )}
-                <span className={`chip ${rule.phase ?? "both"}`}>{zhPhase(rule.phase)}</span>
-                <span className="spacer" />
-                <span className="rule-id">{rule.id}</span>
               </div>
             </div>
           </div>

@@ -26,17 +26,6 @@ export function zhLevel(level: string | undefined): string {
   }
 }
 
-export function zhPhase(phase: string | undefined): string {
-  switch (phase) {
-    case "live":
-      return "进行中";
-    case "settled":
-      return "已结束";
-    default:
-      return "全程";
-  }
-}
-
 /* ── event types ─────────────────────────────────────────────────────────── */
 
 const ZH_EVENT: Record<string, string> = {
@@ -250,9 +239,8 @@ export function describeWhenZh(when: When): string {
 export function describeRuleZh(rule: Rule): string {
   const when = rule.when.conditions.length > 0 ? describeWhenZh(rule.when) : "";
   const level = rule.emit.level === "none" ? "规则关闭" : `发出「${zhLevel(rule.emit.level)}」提醒`;
-  const phase = rule.phase && rule.phase !== "both" ? `(只在${zhPhase(rule.phase)}阶段)` : "";
-  if (!when) return `${level}${phase}`;
-  return `当 ${when} 时，${level}${phase}`;
+  if (!when) return level;
+  return `当 ${when} 时，${level}`;
 }
 
 /* ── rule templates ──────────────────────────────────────────────────────── */

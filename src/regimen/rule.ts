@@ -126,6 +126,19 @@ export function validatePack(pack: unknown): RuleIssue[] {
       issues.push({ ruleId: id, path: `${at}.phase`, message: `expected one of ${PHASES.join(", ")}` });
     }
 
+    // `phase` and `facts.ended` say the same thing from two sides, and one
+    // combination says "never": a rule judged only while the run is live, gated
+    // on a condition that is only true once it has ended, can never fire. Say so
+    // here instead of letting it sit in a pack looking healthy.
+    if (rule?.phase === "live" && requiresEnded(rule.when)) {
+      issues.push({
+        ruleId: id,
+        path: `${at}.when`,
+        message:
+          'this rule can never fire: phase is "live" but the conditions require facts.ended to be true — drop the ended condition, or judge it settled/both',
+      });
+    }
+
     const emit = rule?.emit;
     if (!emit || typeof emit !== "object") {
       issues.push({ ruleId: id, path: `${at}.emit`, message: "a rule needs an emit block" });
@@ -161,6 +174,30 @@ export function validatePack(pack: unknown): RuleIssue[] {
     }
   });
   return issues;
+}
+
+/**
+ * Whether the conditions can only be true once the run has ended.
+ *
+ * This is the contradiction that makes a rule dead: `phase: "live"` never gets
+ * evaluated at rest, so a rule that waits for `facts.ended` inside a live-only
+ * pass is unreachable. Only the top-level conditions are inspected — a `where`
+ * filter reads an array element or an event, never the run's own ended flag, so
+ * an `ended` path inside one is not this pattern.
+ *
+ * `eq: true` is the positive form; a negated op (`ne: true`, or `eq: false`)
+ * requires the opposite and is fine in a live pass.
+ */
+function requiresEnded(when: Rule["when"] | undefined): boolean {
+  if (!when || !Array.isArray(when.conditions)) return false;
+  // With `any`, a single ended-condition is not a gate: the other branches can
+  // still fire live. Only `all` makes the run's end a hard requirement.
+  if ((when.combinator ?? "all") !== "all") return false;
+  return when.conditions.some((condition) => {
+    if (!("field" in condition) || condition.field !== "facts.ended") return false;
+    if (condition.op === "eq") return condition.value === true;
+    return condition.op === "exists" && condition.value === undefined;
+  });
 }
 
 /** Rules in evaluation order: enabled, highest priority first, stable otherwise. */

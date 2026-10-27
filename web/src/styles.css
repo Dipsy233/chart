@@ -127,7 +127,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .view { min-height: 0; overflow: hidden; display: grid; }
 
 /* every view is a row of columns; each column scrolls on its own */
-.view.rules { grid-template-columns: 196px 286px minmax(0, 1fr); }
+.view.rules { grid-template-columns: 196px 360px minmax(0, 1fr); }
 .view.events { grid-template-columns: 196px 322px minmax(0, 1fr); }
 .view.report-view { grid-template-columns: 196px 300px minmax(0, 1fr) 296px; }
 
@@ -295,21 +295,35 @@ textarea.field { resize: vertical; min-height: 46px; line-height: 1.5; }
 .grip.static { color: var(--dim); font-family: var(--mono); font-size: 10px; cursor: default; }
 .grip.static:hover { color: var(--dim); background: transparent; }
 
-/* rules: fixed height, one card per rule, order = evaluation order */
+/* rules: fixed height, one card per rule, order = evaluation order.
+   The attention level is the card's frame — no level chip inside it. */
 .rule-card {
   display: flex; align-items: stretch; gap: 6px;
-  height: 82px; padding: 6px 8px 6px 4px;
-  border: 1px solid var(--line); border-radius: 6px;
+  height: 96px; padding: 6px 9px 6px 4px;
+  border: 1px solid var(--line); border-left: 3px solid var(--line2);
+  border-radius: 6px;
   background: var(--panel2); cursor: pointer; overflow: hidden;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
-.rule-card:hover { border-color: var(--line2); }
-.rule-card.sel { border-color: var(--green-dim); background: rgba(61, 255, 158, 0.07); }
-.rule-card.off { opacity: 0.5; }
+.rule-card:hover { border-color: var(--line2); background: var(--panel3); }
+.rule-card.high { border-color: rgba(255, 95, 87, 0.45); border-left-color: var(--high); }
+.rule-card.medium { border-color: rgba(255, 179, 64, 0.45); border-left-color: var(--medium); }
+.rule-card.low { border-color: rgba(87, 182, 255, 0.45); border-left-color: var(--low); }
+.rule-card.off { opacity: 0.55; }
+.rule-card.high:hover { border-color: var(--high); box-shadow: 0 0 12px rgba(255, 95, 87, 0.14); }
+.rule-card.medium:hover { border-color: var(--medium); box-shadow: 0 0 12px rgba(255, 179, 64, 0.14); }
+.rule-card.low:hover { border-color: var(--low); box-shadow: 0 0 12px rgba(87, 182, 255, 0.14); }
+.rule-card.sel { background: rgba(61, 255, 158, 0.07); box-shadow: inset 0 0 0 1px var(--green-dim); }
 .rule-card.dragging { background: var(--panel3); opacity: 0.96; }
 .rule-card-main { display: flex; flex-direction: column; justify-content: center; gap: 3px; min-width: 0; flex: 1; }
 .rule-card-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.rule-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-size: 12.5px; }
-.rule-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); font-size: 11px; }
+.rule-card-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-size: 12.5px; }
+.rule-card-off { flex: 0 0 auto; font-family: var(--mono); font-size: 9px; letter-spacing: 0.06em; color: var(--dim); }
+.rule-card-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); font-size: 11px; }
+.rule-card-id {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--mono); font-size: 10px; color: var(--ink2); opacity: 0.75;
+}
 .rule-tags { display: inline-flex; gap: 3px; min-width: 0; overflow: hidden; flex: 0 1 auto; }
 .rule-tag {
   font-family: var(--mono); font-size: 9px; letter-spacing: 0.04em;
@@ -318,7 +332,6 @@ textarea.field { resize: vertical; min-height: 46px; line-height: 1.5; }
   max-width: 76px;
 }
 .rule-tag.empty { color: var(--line2); border-color: var(--line); font-style: italic; }
-.rule-card .rule-id { flex: 0 1 auto; max-width: 96px; }
 
 /* events: fixed height too, so a long command cannot stretch the column */
 .event-card.compact {
@@ -675,7 +688,7 @@ textarea.field { resize: vertical; min-height: 46px; line-height: 1.5; }
 @media (max-width: 1420px) {
   .view.report-view { grid-template-columns: 168px 250px minmax(0, 1fr) 250px; }
   .view.events { grid-template-columns: 168px 280px minmax(0, 1fr); }
-  .view.rules { grid-template-columns: 168px 258px minmax(0, 1fr); }
+  .view.rules { grid-template-columns: 168px 320px minmax(0, 1fr); }
 }
 @media (max-width: 1120px) {
   .view.report-view { grid-template-columns: 168px 250px minmax(420px, 1fr) 250px; }
@@ -777,3 +790,9 @@ textarea.field { resize: vertical; min-height: 46px; line-height: 1.5; }
   color: var(--dim); white-space: nowrap;
 }
 .backend.api { color: var(--green); border-color: var(--green-dim); background: rgba(61, 255, 158, 0.06); }
+
+/* The derived phase: a reading, not a control — the conditions decide it. */
+.derived-phase { display: flex; align-items: center; gap: 7px; min-width: 0; flex-wrap: wrap; }
+.derived-phase .chip.live { color: var(--green); border-color: var(--green-dim); }
+.derived-phase .chip.settled { color: var(--low); border-color: rgba(87, 182, 255, 0.5); }
+.derived-phase .chip.both { color: var(--ink2); border-color: var(--line2); }

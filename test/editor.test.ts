@@ -10,16 +10,21 @@ import {
 } from "../src/editor/catalog.ts";
 import {
   describeRule,
+  effectivePhase,
   isIdTaken,
   newRule,
   operatorsForField,
+  impliedPhase,
+  phaseFromWhen,
   previewRule,
   removeRule,
   resetPack,
   suggestId,
   upsertRule,
   validateRule,
+  withDerivedPhase,
 } from "../src/editor/draft.ts";
+import type { When } from "../src/regimen/predicate.ts";
 import { resolvePath } from "../src/regimen/predicate.ts";
 import { DEFAULT_PACK } from "../src/regimen/defaults.ts";
 import { CHART_EVENT_TYPES } from "../src/core/events.ts";
@@ -178,6 +183,64 @@ section("editor: rule helpers");
   check("the description names the phase", describeRule(rule).includes("[live]"));
   const off = { ...newRule("y"), emit: { level: "none" as const, title: "t" } };
   check("a rule at level none reads as off", describeRule(off).includes("off"));
+}
+
+section("editor: the phase comes from the conditions");
+
+{
+  const endedTrue: When = { conditions: [{ field: "facts.ended", op: "eq", value: true }] };
+  const endedFalse: When = { conditions: [{ field: "facts.ended", op: "eq", value: false }] };
+  const unrelated: When = { conditions: [{ field: "facts.commands.failed", op: "gte", value: 3 }] };
+
+  checkEqual("waiting for the run to end means settled", phaseFromWhen(endedTrue), "settled");
+  checkEqual("requiring it to still be running means live", phaseFromWhen(endedFalse), "live");
+  checkEqual("saying nothing means both", phaseFromWhen(unrelated), "both");
+  check("and implies nothing at all", impliedPhase(unrelated) === undefined);
+  checkEqual(
+    "ne true is the live form",
+    phaseFromWhen({ conditions: [{ field: "facts.ended", op: "ne", value: true }] }),
+    "live",
+  );
+  checkEqual(
+    "exists is the settled form",
+    phaseFromWhen({ conditions: [{ field: "facts.ended", op: "exists" }] }),
+    "settled",
+  );
+  checkEqual(
+    "any does not pin a phase",
+    phaseFromWhen({
+      combinator: "any",
+      conditions: [
+        { field: "facts.ended", op: "eq", value: true },
+        { field: "facts.errors.total", op: "gt", value: 0 },
+      ],
+    }),
+    "both",
+  );
+
+  const base = { ...newRule("user.phase"), when: unrelated };
+  checkEqual("a derived settled phase is written", withDerivedPhase({ ...base, when: endedTrue }).phase, "settled");
+  checkEqual("a derived live phase is written", withDerivedPhase({ ...base, when: endedFalse }).phase, "live");
+  check(
+    "an unrelated condition leaves the stored phase alone",
+    withDerivedPhase({ ...base, phase: "settled", when: unrelated }).phase === "settled",
+  );
+  check(
+    "and a rule with no phase stays without one",
+    withDerivedPhase({ ...base, phase: undefined, when: unrelated }).phase === undefined,
+  );
+  checkEqual("effectivePhase falls back to both", effectivePhase({ ...base, phase: undefined }), "both");
+
+  // The contradiction the derivation exists to prevent.
+  const dead = { ...base, phase: "live" as const, when: endedTrue };
+  check(
+    "a live rule waiting for the run to end is rejected",
+    validateRule(dead).some((issue) => issue.message.includes("can never fire")),
+  );
+  check(
+    "and the same rule with the derived phase is fine",
+    validateRule(withDerivedPhase(dead)).every((issue) => !issue.message.includes("can never fire")),
+  );
 }
 
 {

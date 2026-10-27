@@ -63,10 +63,10 @@ data edit, not a renderer edit.
 
 ```
 ┌ packs ────┬ rules ─────────────────┬ 1 信息 ─────────────┬ 原生 JSON ──────┐
-│ ● 内置默认│ ⠿ 代理带着错误停止 严重│ 名称 / 描述 / 标签   │ {                │
-│ ● work    │ ⠿ 未恢复的失败          │ 名称 / 描述 / 标签    │   "id": "run.…", │
-│ ＋新建     │ ⠿ 连续失败              │ 优先级 / 判读时机     │   "phase": "…",  │
-│ { } 规则包 │ ⠿ 进程没收尾       提示│ 人话版 / 条件 / 预设  │   "when": { … }  │
+│ ● 内置默认│ ⠿ 代理带着错误停止     │ 名称 / 描述 / 标签   │ {                │
+│ ● work    │ ⠿ 未恢复的失败         │ 优先级 / 判读时机     │   "id": "run.…", │
+│ ＋新建     │ ⠿ 连续失败             │ 2 规则               │   "when": { … }, │
+│ { } 规则包 │ ⠿ 进程没收尾           │ 人话版 / 条件 / 预设  │   "when": { … }  │
 │ 导入 下载 │ …                      │ 3 报告               │ }                │
 │           │                        │ 级别 / 标题 / 证据    │ [放大]           │
 └───────────┴────────────────────────┴──────────────────────┴──────────────────┘
@@ -94,18 +94,15 @@ The rule panel is three numbered blocks, in the order a rule is thought about:
    **＋** card opens a one-line input (Enter commits, Esc cancels). No
    comma-separated string to get wrong.
 
-   **判读时机 is not a control — it is read off the conditions.** A rule with no
-   `facts.ended` condition is judged 全程 (`both`, the default, stored as no
-   `phase` field at all); `这一轮是否已结束 = 是` pins it to 结束后 (`settled`);
-   `= 否` pins it to 运行中 (`live`). `any` does not pin anything, because the
-   other branches still work mid-run. The derivation lives in
-   `src/editor/draft.ts` (`impliedPhase` / `withDerivedPhase`) and runs on every
-   condition edit, so the two ways of saying "only after the run ended" can
-   never disagree. A rule whose conditions say nothing keeps the phase it had.
-
-   `validatePack` rejects the contradiction this replaces: `phase: "live"` with
-   a condition requiring `facts.ended`, which could never fire. Id, cooldown,
-   suppression and the machine `reason` live in a collapsed **更多设置**.
+   **判读时机 is not a control and not a field — it is read off the conditions.**
+   A rule with no `facts.ended` condition is judged 全程 (`both`); `这一轮是否已结束
+   = 是` pins it to 结束后 (`settled`); `= 否` pins it to 运行中 (`live`). `any`
+   does not pin anything, because the other branches still work mid-run. The
+   derivation lives in the engine (`impliedPhase` / `phaseOf` in
+   `src/regimen/rule.ts`), so the CLI, the API and the editor cannot disagree,
+   and `validatePack` rejects a legacy `phase` field that contradicts the
+   conditions. Id, cooldown, suppression and the machine `reason` live in a
+   collapsed **更多设置**.
 2. **规则** — a plain-language reading of the current form, then the conditions.
    A preset palette (**＋常用条件**) offers the ten shapes most rules are
    ("命令失败数达到…", "连续失败达到…", "最近 2 分钟内失败…", "有进程没退出", …).

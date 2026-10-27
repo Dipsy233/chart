@@ -22,9 +22,21 @@ import {
   operatorsFor,
   type OperatorInfo,
   type ValueKind,
-  type When,
 } from "../regimen/predicate.ts";
-import { validatePack, type Rule, type RulePack, type RuleIssue, type RulePhase } from "../regimen/rule.ts";
+import {
+  impliedPhase,
+  phaseOf,
+  validatePack,
+  type Rule,
+  type RulePack,
+  type RuleIssue,
+  type RulePhase,
+} from "../regimen/rule.ts";
+
+// The derivation lives in the engine, not here: a UI must not be the only place
+// that knows when a rule is judged. Re-exported so an editor can keep importing
+// it from the model it already uses.
+export { impliedPhase, phaseOf };
 import { dryRun } from "../regimen/evaluate.ts";
 import { buildFacts } from "../facts/build.ts";
 import { deriveRuns, pickRun } from "../facts/runs.ts";
@@ -38,7 +50,6 @@ export function newRule(id = "my.rule"): Rule {
     id,
     name: "My rule",
     description: "",
-    phase: "both",
     priority: 0,
     when: {
       combinator: "all",
@@ -59,81 +70,35 @@ export function validateRule(rule: Rule): RuleIssue[] {
 }
 
 /**
- * The phase a rule's conditions *pin down*, or `undefined` if they say nothing.
- *
- * `phase` and the `facts.ended` condition say the same thing from two sides, so
- * the editor asks once and derives the other: a rule that waits for the run to
- * end can only be judged settled, one that requires it to still be running can
- * only be judged live.
- *
- * `undefined` is not "both" — it is "the conditions do not care". That keeps a
- * rule that never mentions `facts.ended` on whatever phase it already had,
- * instead of silently re-judging it the moment an unrelated condition is edited.
- *
- * Only `all` qualifies: with `any`, an ended-branch is just one way to fire and
- * the other branches still work mid-run.
+ * The phase to show for a rule's conditions, or `both` when they say nothing.
+ * The conditions are the declaration; see `impliedPhase` in the engine.
  */
-export function impliedPhase(when: When): RulePhase | undefined {
-  if ((when.combinator ?? "all") !== "all") return undefined;
-  for (const condition of when.conditions) {
-    if (!("field" in condition) || condition.field !== "facts.ended") continue;
-    switch (condition.op) {
-      case "eq":
-        if (condition.value === true) return "settled";
-        if (condition.value === false) return "live";
-        break;
-      case "ne":
-        if (condition.value === true) return "live";
-        if (condition.value === false) return "settled";
-        break;
-      case "exists":
-        return "settled";
-      case "notExists":
-        return "live";
-      default:
-        break;
-    }
-  }
-  return undefined;
-}
-
-/** The phase to show for a rule: what it stores, else what its conditions imply. */
-export function phaseFromWhen(when: When): RulePhase {
+export function phaseFromWhen(when: Rule["when"]): RulePhase {
   return impliedPhase(when) ?? "both";
 }
 
-/** The phase a rule is actually judged in: what is stored, else the default. */
+/** The phase a rule is actually judged in. */
 export function effectivePhase(rule: Rule): RulePhase {
-  return rule.phase ?? "both";
+  return phaseOf(rule);
 }
 
 /**
- * The rule with its `phase` re-derived from its conditions.
+ * The rule with its legacy `phase` field brought in line with its conditions.
  *
- * An editor calls this on every condition change instead of offering a separate
- * "判读时机" control: one source of truth for a rule that mentions the run's end,
- * and no way to write the contradiction of a live-only rule that waits for it.
- *
- * A rule whose conditions say nothing keeps whatever phase it has (a fresh rule
- * has none, which is `both`); `both` is stored as *no phase at all*, the field's
- * documented default.
+ * An editor calls this on every condition change. It never *adds* a phase — the
+ * conditions already decide, so the field is only ever removed when it is stale.
+ * A rule whose conditions say nothing keeps whatever it had.
  */
 export function withDerivedPhase(rule: Rule): Rule {
-  const implied = impliedPhase(rule.when);
-  if (implied === undefined) return rule;
-  if (implied === "both") {
-    if (rule.phase === undefined) return rule;
-    const { phase: _dropped, ...rest } = rule;
-    return rest;
-  }
-  return implied === rule.phase ? rule : { ...rule, phase: implied };
+  if (impliedPhase(rule.when) === undefined || rule.phase === undefined) return rule;
+  const { phase: _dropped, ...rest } = rule;
+  return rest;
 }
 
 /** The sentence an editor shows for a rule: what it watches and what it says. */
 export function describeRule(rule: Rule): string {
-  const phase = rule.phase && rule.phase !== "both" ? ` [${rule.phase}]` : "";
   const level = rule.emit.level === "none" ? "off" : rule.emit.level;
-  return `${describeWhen(rule.when)} → ${level}${phase}`;
+  return `${describeWhen(rule.when)} → ${level}`;
 }
 
 /** Operators to offer for a field path, based on the catalogue's type. */

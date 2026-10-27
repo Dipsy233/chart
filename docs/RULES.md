@@ -7,11 +7,11 @@ say. Nothing is executed.
 {
   "id": "user.flailing",
   "name": "Five failures inside two minutes",
-  "phase": "live",
   "priority": 10,
   "when": {
     "combinator": "all",
     "conditions": [
+      { "field": "facts.ended", "op": "eq", "value": false },
       { "window": {
           "events": { "type": ["command"],
                       "where": { "conditions": [{ "field": "payload.exitCode", "op": "ne", "value": 0 }] } },
@@ -45,7 +45,7 @@ combinator, so a tree cannot be built by accident.
 |---|---|
 | `id` | Stable, unique. Used in `suppresses` and as the finding's `reason` by default. |
 | `name`, `description` | For the editor. Never evaluated. |
-| `phase` | `live` / `settled` / `both` (default). Which pass may judge it. Optional: the editor derives it from a `facts.ended` condition (see below) and omits the field for `both`. |
+| `phase` | **Derived, not declared** — see [Phases](#phases). No `facts.ended` condition means `both`. A legacy `phase` field is honoured only when the conditions say nothing, and rejected when it contradicts them. |
 | `priority` | Higher evaluates first. Ties keep the order in the file. |
 | `when` | `{ combinator?, conditions[] }`. Required. |
 | `emit.level` | `none` / `low` / `medium` / `high`. `none` switches the rule **off**. |
@@ -71,8 +71,23 @@ firewall-like behaviour is `suppresses`.
 | `both` | either | — | streaks, repeated failures |
 
 A rule that only makes sense settled (a leftover process) or only live (a stall)
-declares it. The old engine hard-coded that into which branch read which input;
-here it is a field, so a user's rule declares it too.
+**says so in its conditions**:
+
+| Condition | Phase | Meaning |
+|---|---|---|
+| *(none about `facts.ended`)* | `both` | judged throughout |
+| `facts.ended eq true` | `settled` | only once the run has ended |
+| `facts.ended eq false` | `live` | only while it is still running |
+
+`ne` / `exists` / `notExists` work the same way (`ne true` is the live form,
+`exists` the settled one). A `combinator: "any"` block pins nothing, because its
+other branches still work mid-run.
+
+This used to be a `phase` field, which meant "only after the run ended" could be
+said two ways — and a `phase: "live"` rule gated on `facts.ended` could never
+fire at all. There is now one way, and `validatePack` rejects a pack where a
+legacy `phase` field disagrees with the conditions. `phaseOf(rule)` is the one
+function that answers the question.
 
 ## Conditions
 
@@ -303,7 +318,6 @@ finding is data, it does not touch the run.
 ```jsonc
 {
   "id": "example.deliverable",
-  "phase": "both",
   "when": { "combinator": "any", "conditions": [
     { "field": "facts.files.created", "op": "glob", "value": "company/**/*.txt" },
     { "field": "facts.files.created", "op": "glob", "value": "company/**/*.md" }
@@ -321,8 +335,10 @@ finding is data, it does not touch the run.
 idea; `facts.commands.failed` could never tell a burst from an afternoon.
 
 ```jsonc
-{ "id": "example.five-failures-in-two-minutes", "phase": "live",
-  "when": { "conditions": [{ "window": {
+{ "id": "example.five-failures-in-two-minutes",
+  "when": { "conditions": [
+    { "field": "facts.ended", "op": "eq", "value": false },
+    { "window": {
     "events": { "type": ["command"], "where": { "conditions": [
       { "field": "payload.exitCode", "op": "ne", "value": 0 }] } },
     "span": { "lastMs": 120000 },
@@ -334,7 +350,7 @@ idea; `facts.commands.failed` could never tell a burst from an afternoon.
 **Root search.** Chart reports it; it never blocks it.
 
 ```jsonc
-{ "id": "example.root-search", "phase": "both",
+{ "id": "example.root-search",
   "when": { "conditions": [{ "window": {
     "events": { "type": ["command"], "where": { "conditions": [
       { "field": "payload.command", "op": "matches", "value": "^\\s*(find|du|grep)\\s+/(\\s|$)" }] } },

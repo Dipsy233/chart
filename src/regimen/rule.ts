@@ -7,15 +7,21 @@
  * what keeps the engine replayable (see docs/DESIGN.md) and what stops the
  * observer from ever touching the observed agent.
  *
- * `phase` says when a rule can be judged:
+ * `phase` — when a rule can be judged — is **derived from the conditions**, not
+ * declared:
  *
- *   live     — while the run is in flight, anchored at `now`
- *   settled  — once at the end, anchored at the run's last moment
- *   both     — either (the default)
+ *   no `facts.ended` condition   both     (judged throughout — the default)
+ *   `facts.ended = true`         settled  (only once the run has ended)
+ *   `facts.ended = false`        live     (only while it is still running)
  *
- * A leftover process only makes sense settled; a stall only makes sense live.
- * The old engine hard-coded that distinction into which branch read which input;
- * here it is a field, so a user's rule declares it too.
+ * A leftover process only makes sense settled; a stall only makes sense live. The
+ * old engine hard-coded that distinction into which branch read which input, then
+ * this engine made it a field, and now the field is gone too: "only after the run
+ * ended" is already a condition, and saying it twice is one time too many.
+ *
+ * The optional `phase` field survives only as an escape hatch for packs written
+ * before this change; conditions win when they say anything, and a declaration
+ * that contradicts them is rejected (see `validatePack`).
  */
 
 import type { AttentionLevel, Finding } from "../core/types.ts";
@@ -50,7 +56,10 @@ export interface Rule {
   name?: string;
   /** What the rule is for, in one sentence. */
   description?: string;
-  /** `live` / `settled` / `both` (default). */
+  /**
+   * Legacy: derived from the conditions, so a new rule never sets this.
+   * Honoured only when the conditions say nothing about `facts.ended`.
+   */
   phase?: RulePhase;
   /** Higher runs first. Ties keep file order. */
   priority?: number;
@@ -124,12 +133,22 @@ export function validatePack(pack: unknown): RuleIssue[] {
 
     if (rule?.phase !== undefined && !PHASES.includes(rule.phase)) {
       issues.push({ ruleId: id, path: `${at}.phase`, message: `expected one of ${PHASES.join(", ")}` });
+    } else if (rule?.phase !== undefined && rule?.when !== undefined) {
+      // The conditions are the declaration; a legacy field that disagrees with
+      // them is silently ignored by `phaseOf`, which is worse than an error.
+      const implied = impliedPhase(rule.when);
+      const declared = rule.phase === "both" ? undefined : rule.phase;
+      if (implied !== undefined && declared !== undefined && implied !== declared) {
+        issues.push({
+          ruleId: id,
+          path: `${at}.phase`,
+          message: `\`phase: "${rule.phase}"\` contradicts the conditions, which imply "${implied}" — drop the field, the conditions decide`,
+        });
+      }
     }
 
-    // `phase` and `facts.ended` say the same thing from two sides, and one
-    // combination says "never": a rule judged only while the run is live, gated
-    // on a condition that is only true once it has ended, can never fire. Say so
-    // here instead of letting it sit in a pack looking healthy.
+    // A rule that waits for the run to end cannot also be judged only while it
+    // is running: nothing says so, and the rule would never fire.
     if (rule?.phase === "live" && requiresEnded(rule.when)) {
       issues.push({
         ruleId: id,
@@ -177,27 +196,59 @@ export function validatePack(pack: unknown): RuleIssue[] {
 }
 
 /**
+ * The phase a rule's conditions *pin down*, or `undefined` if they say nothing.
+ *
+ * This is the engine's single answer to "when is this rule judged", so a pack
+ * cannot disagree with itself: the conditions are the declaration. `undefined`
+ * means "the conditions do not care", which leaves a legacy `phase` field (or
+ * `both`) in charge.
+ *
+ * Only `all` pins anything: with `any`, an ended-branch is one way to fire and
+ * the other branches still work mid-run, so no phase can be inferred.
+ */
+export function impliedPhase(when: When | undefined): RulePhase | undefined {
+  if (!when || !Array.isArray(when.conditions)) return undefined;
+  if ((when.combinator ?? "all") !== "all") return undefined;
+  for (const condition of when.conditions) {
+    if (!("field" in condition) || condition.field !== "facts.ended") continue;
+    switch (condition.op) {
+      case "eq":
+        if (condition.value === true) return "settled";
+        if (condition.value === false) return "live";
+        break;
+      case "ne":
+        if (condition.value === true) return "live";
+        if (condition.value === false) return "settled";
+        break;
+      case "exists":
+        return "settled";
+      case "notExists":
+        return "live";
+      default:
+        break;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The phase a rule is judged in: what its conditions imply, else the legacy
+ * `phase` field, else `both`.
+ */
+export function phaseOf(rule: Rule): RulePhase {
+  return impliedPhase(rule.when) ?? rule.phase ?? "both";
+}
+
+/**
  * Whether the conditions can only be true once the run has ended.
  *
- * This is the contradiction that makes a rule dead: `phase: "live"` never gets
- * evaluated at rest, so a rule that waits for `facts.ended` inside a live-only
- * pass is unreachable. Only the top-level conditions are inspected — a `where`
- * filter reads an array element or an event, never the run's own ended flag, so
- * an `ended` path inside one is not this pattern.
- *
- * `eq: true` is the positive form; a negated op (`ne: true`, or `eq: false`)
- * requires the opposite and is fine in a live pass.
+ * Only the top-level conditions are inspected — a `where` filter reads an array
+ * element or an event, never the run's own ended flag, so an `ended` path inside
+ * one is not this pattern. `eq: true` is the positive form; a negated op
+ * (`ne: true`, or `eq: false`) requires the opposite.
  */
-function requiresEnded(when: Rule["when"] | undefined): boolean {
-  if (!when || !Array.isArray(when.conditions)) return false;
-  // With `any`, a single ended-condition is not a gate: the other branches can
-  // still fire live. Only `all` makes the run's end a hard requirement.
-  if ((when.combinator ?? "all") !== "all") return false;
-  return when.conditions.some((condition) => {
-    if (!("field" in condition) || condition.field !== "facts.ended") return false;
-    if (condition.op === "eq") return condition.value === true;
-    return condition.op === "exists" && condition.value === undefined;
-  });
+function requiresEnded(when: When | undefined): boolean {
+  return impliedPhase(when) === "settled";
 }
 
 /** Rules in evaluation order: enabled, highest priority first, stable otherwise. */
@@ -212,7 +263,7 @@ export function orderedRules(pack: RulePack, phase?: RulePhase): Rule[] {
 
 /** Whether a rule is judged in this phase. `both` (the default) is always. */
 export function appliesInPhase(rule: Rule, phase: RulePhase): boolean {
-  const declared = rule.phase ?? "both";
+  const declared = phaseOf(rule);
   return declared === "both" || declared === phase;
 }
 

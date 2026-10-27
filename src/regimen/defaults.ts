@@ -14,10 +14,11 @@
  *      fired. Rules run in parallel here, so each rule carries the negation that
  *      made it exclusive in the chain — read `run.commands-failed`.
  *
- *   2. **`phase` is the live/settled split the old code implied.** A leftover
- *      process is only meaningful once the run has settled; a stall is only
- *      meaningful while it is live. The old engine got that from which branch
- *      read which input; now it is a field.
+ *   2. **The live/settled split is a condition, not a field.** A leftover process
+ *      is only meaningful once the run has settled; a stall is only meaningful
+ *      while it is live. The old engine got that from which branch read which
+ *      input; this engine made it a `phase` field; now it is a `facts.ended`
+ *      condition, which is the one thing the rule already had to mean.
  */
 
 import type { Rule, RulePack } from "./rule.ts";
@@ -37,7 +38,6 @@ export const DEFAULT_PACK: RulePack = {
       name: "代理带着错误停止",
       description: "这一轮没有跑完，以错误状态结束。",
       source: "default",
-      phase: "settled",
       when: {
         conditions: [
           { field: "facts.ended", op: "eq", value: true },
@@ -57,7 +57,6 @@ export const DEFAULT_PACK: RulePack = {
       name: "未恢复的失败(已结束)",
       description: "运行结束后，仍有失败没有任何成功命令或修改把它补救回来。",
       source: "default",
-      phase: "settled",
       priority: 10,
       when: {
         conditions: [
@@ -79,11 +78,11 @@ export const DEFAULT_PACK: RulePack = {
       name: "未恢复的失败(等待用户)",
       description: "同样的判断，用于运行还在进行、但代理已经停下来等用户的时刻。",
       source: "default",
-      phase: "live",
       priority: 10,
       when: {
         conditions: [
           { field: "facts.unresolved", op: "nonEmpty" },
+          { field: "facts.ended", op: "eq", value: false },
           { field: "live.busy", op: "eq", value: false },
         ],
       },
@@ -101,9 +100,9 @@ export const DEFAULT_PACK: RulePack = {
       name: "失败命令(全部已恢复)",
       description: "失败达到 5 次以上，但每一次之后都有成功命令或修改把它补了回来。",
       source: "default",
-      phase: "settled",
       when: {
         conditions: [
+          { field: "facts.ended", op: "eq", value: true },
           { field: "facts.unresolved", op: "empty" },
           { field: "facts.commands.failed", op: "gte", value: 5 },
         ],
@@ -121,7 +120,6 @@ export const DEFAULT_PACK: RulePack = {
       name: "失败命令超过阈值(进行中)",
       description: "计数规则的进行中版本：代理还在干活，失败数已经超过阈值。",
       source: "default",
-      phase: "live",
       when: {
         conditions: [
           { field: "facts.unresolved", op: "nonEmpty" },
@@ -142,9 +140,9 @@ export const DEFAULT_PACK: RulePack = {
       name: "孤立的错误事件",
       description: "出现了 error 事件，但背后没有失败命令 —— 较弱的信号，默认只给「警告」。",
       source: "default",
-      phase: "settled",
       when: {
         conditions: [
+          { field: "facts.ended", op: "eq", value: true },
           { field: "facts.unresolved", op: "empty" },
           { field: "facts.commands.failed", op: "lt", value: 5 },
           { field: "facts.errors.total", op: "gt", value: 0 },
@@ -164,7 +162,6 @@ export const DEFAULT_PACK: RulePack = {
       name: "命令连续失败",
       description: "连续三条命令失败，中间没有一次成功：代理可能在反复碰壁。进行中和结束后都判读。",
       source: "default",
-      phase: "both",
       when: {
         conditions: [{ field: "facts.failureStreak.count", op: "gte", value: 3 }],
       },
@@ -181,9 +178,11 @@ export const DEFAULT_PACK: RulePack = {
       name: "长时间没有动静",
       description: "运行还在进行，但 3600 秒内什么都没有发生：命令卡死，或者提示词卡住了。只在进行中判读。",
       source: "default",
-      phase: "live",
       when: {
-        conditions: [{ field: "live.stalledSeconds", op: "gte", value: 3600 }],
+        conditions: [
+          { field: "facts.ended", op: "eq", value: false },
+          { field: "live.stalledSeconds", op: "gte", value: 3600 },
+        ],
       },
       emit: {
         reason: "activity_stalled",
@@ -198,7 +197,6 @@ export const DEFAULT_PACK: RulePack = {
       name: "有进程没收尾",
       description: "代理启动的进程在运行结束后仍然活着。Chart 会报告每一个;想跳过辅助进程，可以在条件里加 lifetimeMs 或名称过滤。",
       source: "default",
-      phase: "settled",
       when: {
         conditions: [
           { field: "facts.ended", op: "eq", value: true },
@@ -219,9 +217,11 @@ export const DEFAULT_PACK: RulePack = {
       name: "项目外的改动",
       description: "监视器发现项目目录之外有改动 —— 少见、与代理无关、通常能解释清楚。要忽略某些路径，把条件收窄即可。",
       source: "default",
-      phase: "settled",
       when: {
-        conditions: [{ field: "facts.outsideChanges", quant: "count", op: "gte", value: 1 }],
+        conditions: [
+          { field: "facts.ended", op: "eq", value: true },
+          { field: "facts.outsideChanges", quant: "count", op: "gte", value: 1 },
+        ],
       },
       emit: {
         reason: "outside_change",
@@ -236,9 +236,11 @@ export const DEFAULT_PACK: RulePack = {
       name: "文件被改回旧版本",
       description: "代理把一个文件写回了它已经持有过的状态：它推翻了自己的工作。",
       source: "default",
-      phase: "settled",
       when: {
-        conditions: [{ field: "facts.reverts", quant: "count", op: "gte", value: 1 }],
+        conditions: [
+          { field: "facts.ended", op: "eq", value: true },
+          { field: "facts.reverts", quant: "count", op: "gte", value: 1 },
+        ],
       },
       emit: {
         reason: "file_version_loop",
@@ -254,7 +256,6 @@ export const DEFAULT_PACK: RulePack = {
       name: "同一条命令反复失败",
       description: "同一条命令失败了两次以上：代理是卡住了，不是运气不好。进行中和结束后都判读。",
       source: "default",
-      phase: "both",
       when: {
         conditions: [
           {

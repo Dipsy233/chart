@@ -12,13 +12,12 @@
  * the report is the answer.
  *
  * The plain-language reading sits above the conditions, so the controls and the
- * sentence cannot drift apart. Everything a beginner never needs (id, phase,
- * priority, cooldown, suppression, reason) is in a collapsed "更多设置".
+ * sentence cannot drift apart. Everything a beginner never needs (id, priority,
+ * cooldown, suppression, reason) is in a collapsed "更多设置".
  *
- * `phase` is deliberately *not* a first-class control any more: "only judge this
- * once the run has ended" is already a condition (`facts.ended = true`), and two
- * ways to say the same thing is one too many. The field survives in the data (and
- * in 更多设置) because the engine still filters by it.
+ * `phase` is not a control and not a field: "only judge this once the run has
+ * ended" is already a condition (`facts.ended = true`), and the engine derives
+ * the phase from it. The panel shows the derived answer as a reading.
  */
 
 import { useMemo, useRef, useState } from "react";
@@ -67,8 +66,9 @@ export function RuleEditor({
 
   const patchEmit = (patch: Partial<Rule["emit"]>) => onChange({ ...rule, emit: { ...rule.emit, ...patch } });
 
-  // Every condition edit re-derives `phase`: "when is this judged" is answered
-  // by the conditions themselves, so there is no second control to keep in sync.
+  // Every condition edit re-derives the legacy `phase` field: "when is this
+  // judged" is answered by the conditions themselves, so there is no second
+  // control to keep in sync.
   const patchWhen = (when: Rule["when"]) => onChange(withDerivedPhase({ ...rule, when }));
   const derivedPhase = phaseFromWhen(rule.when);
 

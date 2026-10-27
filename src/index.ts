@@ -49,7 +49,15 @@ import type { ReportSpec, RenderedReport } from "./report/spec.ts";
 export type { ChartEvent, ChartEventType, ChartEventPayloadMap } from "./core/events.ts";
 export * from "./core/types.ts";
 export type { Rule, RulePack, RuleEmit, RuleIssue, RulePhase } from "./regimen/rule.ts";
-export { validatePack, orderedRules, mergePacks, hashPack, appliesInPhase } from "./regimen/rule.ts";
+export {
+  validatePack,
+  orderedRules,
+  mergePacks,
+  hashPack,
+  appliesInPhase,
+  impliedPhase,
+  phaseOf,
+} from "./regimen/rule.ts";
 export type {
   When,
   Condition,

@@ -102,10 +102,10 @@ A rule, in full — flat conditions, one combinator, no nesting:
 {
   "id": "example.five-failures-in-two-minutes",
   "name": "Five failures inside two minutes",
-  "phase": "live",
   "when": {
     "combinator": "all",
     "conditions": [
+      { "field": "facts.ended", "op": "eq", "value": false },
       { "window": {
           "events": { "type": ["command"],
                       "where": { "conditions": [{ "field": "payload.exitCode", "op": "ne", "value": 0 }] } },
@@ -159,8 +159,8 @@ session being observed).
   palette, and catalogue-driven condition rows: compare / quantify / window /
   sequence), and **报告** (level, title with an insert-data menu, detail,
   evidence). **判读时机 is derived, not chosen**: no `facts.ended` condition means
-  `both`, `ended = true` means `settled`, `ended = false` means `live`. Id,
-  cooldown and suppression hide under 更多设置.
+  `both`, `ended = true` means `settled`, `ended = false` means `live` — there is
+  no `phase` field to set. Id, cooldown and suppression hide under 更多设置.
 - **事件流** — runs | events | the event. Pick the round, pick the event, edit
   it: type, time, the payload fields that matter for that type, and the raw JSON.
   Cards reorder with the same grip; adding an event inserts before a trailing
@@ -195,8 +195,10 @@ only moves JSON.
 ```bash
 # add a rule without touching the rest
 curl -s -X POST localhost:5175/api/packs/work/rules -H 'content-type: application/json' -d '{
-  "id": "user.burst", "name": "两分钟内连败三次", "phase": "live",
-  "when": { "combinator": "all", "conditions": [ { "window": {
+  "id": "user.burst", "name": "两分钟内连败三次",
+  "when": { "combinator": "all", "conditions": [
+    { "field": "facts.ended", "op": "eq", "value": false },
+    { "window": {
       "events": { "type": ["command"], "where": { "conditions": [ { "field": "payload.exitCode", "op": "ne", "value": 0 } ] } },
       "span": { "lastMs": 120000 }, "measure": "count", "op": "gte", "value": 3 } } ] },
   "emit": { "level": "high", "title": "最近两分钟连败", "tags": ["commands"], "evidence": ["facts.failed"] }
@@ -252,9 +254,10 @@ Done and tested:
   streaks, retries, outside changes, knowledge, timeline, phases
 - Regimen: flat conditions (23 operators incl. negations), collection
   quantifiers, **event windows** (`count`/`streak`/`gapMs`/`sum`/`max`/`min`/
-  `avg`/`distinct` with `lastMs`/`nextMs` spans), `live`/`settled`/`both` phases,
-  an operator catalogue for editors, validation with paths, templates, priority,
-  suppression, cooldowns, fail-open errors
+  `avg`/`distinct` with `lastMs`/`nextMs` spans), a derived `live`/`settled`/`both`
+  phase (a `facts.ended` condition, not a field), an operator catalogue for
+  editors, validation with paths, templates, priority, suppression, cooldowns,
+  fail-open errors
 - three modes: `observe` / `record` + `replayReport` (recorded findings, no
   re-judging) / `simulate` (hypothetical, labelled)
 - packs on disk: `PackStore` (validate-before-write, atomic, slug names, a

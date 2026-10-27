@@ -206,7 +206,7 @@ versioned surface.
 ```ts
 interface Rule {
   id: string;
-  phase?: "live" | "settled" | "both";   // default "both"
+  phase?: "live" | "settled" | "both";   // legacy; derived from `facts.ended`
   priority?: number;                      // higher first; ties keep file order
   when: { combinator?: "all" | "any"; conditions: Condition[] };  // flat
   emit: { level, title, detail?, tags?, evidence?, reason? };

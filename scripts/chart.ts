@@ -29,6 +29,7 @@ import {
   eventFields,
   observe,
   parsePack,
+  phaseOf,
   previewRule,
   reportText,
   serializePack,
@@ -148,7 +149,8 @@ async function cmdShow(name: string | undefined) {
   for (const rule of pack.rules) {
     const off = rule.enabled === false || rule.emit.level === "none";
     const level = off ? paint.dim("off") : paint.cyan(rule.emit.level);
-    const phase = rule.phase && rule.phase !== "both" ? paint.dim(` [${rule.phase}]`) : "";
+    const declared = phaseOf(rule);
+    const phase = declared !== "both" ? paint.dim(` [${declared}]`) : "";
     console.log(`\n  ${off ? paint.dim(rule.id) : rule.id}  ${level}${phase}`);
     console.log(`    ${paint.dim("when")} ${describeConditions(rule)}`);
     console.log(`    ${paint.dim("says")} ${rule.emit.title}`);

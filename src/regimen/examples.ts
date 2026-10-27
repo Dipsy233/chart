@@ -19,10 +19,10 @@ export const EXAMPLE_PACK: RulePack = {
       name: "The agent touched an env file",
       description: "Credentials live in .env; reading or rewriting one is usually the start of an incident.",
       source: "user",
-      phase: "settled",
       when: {
-        combinator: "any",
+        combinator: "all",
         conditions: [
+          { field: "facts.ended", op: "eq", value: true },
           {
             field: "facts.files.byPath",
             quant: "count",
@@ -30,6 +30,28 @@ export const EXAMPLE_PACK: RulePack = {
             value: 1,
             where: { conditions: [{ field: "path", op: "glob", value: "**/.env*" }] },
           },
+        ],
+      },
+      emit: {
+        level: "high",
+        title: "An env file was touched",
+        detail: "A .env path was read or written.",
+        tags: ["security"],
+        evidence: ["facts.files.byPath"],
+      },
+    },
+    {
+      // The same idea through the shell. Two rules, not one `any` with an `ended`
+      // gate: `(A or B) and C` is always two rules in a flat language, and keeping
+      // it that way is what makes each of these readable as one sentence.
+      id: "example.env-printed",
+      name: "The agent printed the environment",
+      description: "`printenv` / `env` dumps every credential in the shell to the transcript.",
+      source: "user",
+      when: {
+        combinator: "all",
+        conditions: [
+          { field: "facts.ended", op: "eq", value: true },
           {
             field: "facts.commandFacts",
             quant: "any",
@@ -39,10 +61,10 @@ export const EXAMPLE_PACK: RulePack = {
       },
       emit: {
         level: "high",
-        title: "An env file was touched",
+        title: "The shell printed the environment",
         detail: "Either a .env path was read or written, or the shell printed the environment.",
         tags: ["security"],
-        evidence: ["facts.files.byPath", "facts.commandFacts"],
+        evidence: ["facts.commandFacts"],
       },
     },
     {
@@ -51,7 +73,6 @@ export const EXAMPLE_PACK: RulePack = {
       description:
         "A report the user asked for appeared in the output folder — tell them they can read it while the agent keeps working.",
       source: "user",
-      phase: "both",
       when: {
         combinator: "any",
         conditions: [
@@ -72,7 +93,6 @@ export const EXAMPLE_PACK: RulePack = {
       name: "Searching from the filesystem root",
       description: "`find /` walks the whole machine. Observed only — Chart never blocks it.",
       source: "user",
-      phase: "both",
       when: {
         conditions: [
           {
@@ -106,9 +126,9 @@ export const EXAMPLE_PACK: RulePack = {
       description:
         "The classic: a burst of failures is a stuck agent, while the same five spread over an hour is a normal afternoon.",
       source: "user",
-      phase: "live",
       when: {
         conditions: [
+          { field: "facts.ended", op: "eq", value: false },
           {
             window: {
               events: {
@@ -137,9 +157,9 @@ export const EXAMPLE_PACK: RulePack = {
       description:
         "The same command failed, then succeeded, then failed again inside ten minutes: a sequence a count cannot see, because a count cannot notice the success in between. This is what `sequence` is for — and why \"flapping\" is a rule, not a fact the engine has to know about.",
       source: "user",
-      phase: "settled",
       when: {
         conditions: [
+          { field: "facts.ended", op: "eq", value: true },
           {
             sequence: {
               steps: [
@@ -179,9 +199,9 @@ export const EXAMPLE_PACK: RulePack = {
       description:
         "The reply mentions tests, but no test-shaped command ran. Only an observer holding both the transcript and the OS record can offer this.",
       source: "user",
-      phase: "settled",
       when: {
         conditions: [
+          { field: "facts.ended", op: "eq", value: true },
           { field: "facts.response", op: "matches", value: "(?i)\\b(tests?|test suite|specs?)\\b" },
           {
             window: {
@@ -218,9 +238,9 @@ export const EXAMPLE_PACK: RulePack = {
       description:
         "Needs a metrics snapshot in the live context. Sustained CPU above 90% for a minute is what a laptop user wants to hear about.",
       source: "user",
-      phase: "live",
       when: {
         conditions: [
+          { field: "facts.ended", op: "eq", value: false },
           {
             field: "live.metrics.eggs",
             quant: "any",

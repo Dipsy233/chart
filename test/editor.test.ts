@@ -179,8 +179,8 @@ section("editor: rule helpers");
 }
 
 {
-  const rule = { ...newRule("x"), phase: "live" as const, emit: { level: "high" as const, title: "t" } };
-  check("the description names the phase", describeRule(rule).includes("[live]"));
+  const rule = { ...newRule("x"), emit: { level: "high" as const, title: "t" } };
+  check("the description does not name a phase — conditions do", !describeRule(rule).includes("[live]"));
   const off = { ...newRule("y"), emit: { level: "none" as const, title: "t" } };
   check("a rule at level none reads as off", describeRule(off).includes("off"));
 }
@@ -219,8 +219,10 @@ section("editor: the phase comes from the conditions");
   );
 
   const base = { ...newRule("user.phase"), when: unrelated };
-  checkEqual("a derived settled phase is written", withDerivedPhase({ ...base, when: endedTrue }).phase, "settled");
-  checkEqual("a derived live phase is written", withDerivedPhase({ ...base, when: endedFalse }).phase, "live");
+  // The conditions are the declaration; the legacy field is only ever dropped.
+  checkEqual("conditions imply settled", effectivePhase({ ...base, when: endedTrue }), "settled");
+  checkEqual("conditions imply live", effectivePhase({ ...base, when: endedFalse }), "live");
+  check("a stale legacy phase is dropped", withDerivedPhase({ ...base, phase: "live", when: endedTrue }).phase === undefined);
   check(
     "an unrelated condition leaves the stored phase alone",
     withDerivedPhase({ ...base, phase: "settled", when: unrelated }).phase === "settled",

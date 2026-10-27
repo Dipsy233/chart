@@ -111,8 +111,9 @@ The rule panel is three numbered blocks, in the order a rule is thought about:
    conditions. Id, cooldown, suppression and the machine `reason` live in a
    collapsed **更多设置**.
 2. **规则** — a plain-language reading of the current form, then the conditions.
-   A preset palette (**＋常用条件**) offers the ten shapes most rules are
-   ("命令失败数达到…", "连续失败达到…", "最近 2 分钟内失败…", "有进程没退出", …).
+   A preset palette (**＋常用条件**) offers the shapes most rules are
+   ("命令失败数达到…", "连续失败达到…", "最近 2 分钟内失败…", "有进程没退出",
+   "有进程 CPU 超过…%", "有进程内存超过…GB", "整机 CPU 超过…%", …).
    Pickers come from the catalogue, so a number field only offers number
    operators, a status field offers a select of its known values, and a window's
    `where` only offers payload fields of the event types you picked.
@@ -148,8 +149,9 @@ run boundary. Adding an event inserts after the selected card, and before a
 trailing `agent_end` (anything after it belongs to no run).
 
 The pack column lists the built-in defaults, a read-only **示例规则** pack
-(`EXAMPLE_PACK` — eight rules that each demonstrate one capability of the
-language: globs on files, a window, a sequence, a quantifier, a regex), and then
+(`EXAMPLE_PACK` — eleven rules that each demonstrate one capability of the
+language: globs on files, a window, a sequence, a quantifier, a regex, and the
+resource snapshot: CPU, memory, host saturation and session averages), and then
 your own packs. Both read-only entries fork on the first edit. The dot in front
 of a row is the 生效 switch; the row itself opens the pack.
 

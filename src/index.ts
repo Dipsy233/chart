@@ -113,7 +113,15 @@ export {
 } from "./regimen/evaluate.ts";
 export { DEFAULT_PACK, defaultPack } from "./regimen/defaults.ts";
 export { EXAMPLE_PACK, examplePack } from "./regimen/examples.ts";
-export { renderTemplate, formatDuration, plural, shortenPath } from "./regimen/template.ts";
+export {
+  renderTemplate,
+  formatDuration,
+  formatPercent,
+  formatBytes,
+  formatNumber,
+  plural,
+  shortenPath,
+} from "./regimen/template.ts";
 export type { ReportSpec, ReportSection, RenderedReport, RenderedSection } from "./report/spec.ts";
 export { renderReport, renderText } from "./report/render.ts";
 export { LIVE_REPORT, SETTLED_REPORT, DEFAULT_REPORTS } from "./report/defaults.ts";
@@ -336,5 +344,6 @@ export {
 } from "./editor/draft.ts";
 
 export { deriveOutcome as outcome, outcomeHeadline as headline };
-export { withLive } from "./core/live.ts";
+export { withLive, metricsFromFrames, metricsAt } from "./core/live.ts";
+export type { EggSampleLike, MetricsFrameLike } from "./core/live.ts";
 export { dryRun as judgeOnce };

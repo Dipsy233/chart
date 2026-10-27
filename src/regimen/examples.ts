@@ -257,6 +257,86 @@ export const EXAMPLE_PACK: RulePack = {
         evidence: ["facts.processes.primary"],
       },
     },
+    {
+      id: "example.memory-hog",
+      name: "An egg is eating memory",
+      description:
+        "RSS is a gauge, so this is a level check, not a rate: 1 GiB in one process the agent started is worth a look.",
+      source: "user",
+      when: {
+        conditions: [
+          { field: "facts.ended", op: "eq", value: false },
+          {
+            field: "live.metrics.eggs",
+            quant: "any",
+            where: {
+              conditions: [
+                { field: "rssBytes", op: "gte", value: 1024 * 1024 * 1024 },
+                { field: "status", op: "eq", value: "running" },
+              ],
+            },
+          },
+        ],
+      },
+      emit: {
+        level: "medium",
+        title: "A running process is holding more than 1 GiB",
+        detail: "Bytes, not a percentage: a leak on a 64 GiB machine is still a leak.",
+        tags: ["resources", "memory"],
+        evidence: ["facts.processes.primary"],
+      },
+    },
+    {
+      // The host is a *different* subject from the eggs: 85% of the machine is
+      // an incident even when no single egg is hot, and a rule that says "host"
+      // must not be written as "any egg".
+      id: "example.host-saturated",
+      name: "The machine itself is saturated",
+      description:
+        "Host CPU and memory come from the same sampler, so a run can be told its laptop was already busy before it started.",
+      source: "user",
+      when: {
+        combinator: "any",
+        conditions: [
+          { field: "live.metrics.host.cpuPercent", op: "gte", value: 85 },
+          { field: "live.metrics.host.memPercent", op: "gte", value: 92 },
+        ],
+      },
+      emit: {
+        level: "low",
+        title: "The host was at {{live.metrics.host.cpuPercent|percent}} CPU / {{live.metrics.host.memPercent|percent}} memory",
+        detail: "A slow run on a saturated machine is not the agent's fault — but it is worth knowing.",
+        tags: ["resources", "host"],
+        evidence: ["facts.evidence"],
+      },
+    },
+    {
+      // Averages, not the instantaneous sample: a burst is `cpuPercent`, a
+      // process that has been hot for the whole session is `avgCpuPercent`.
+      id: "example.sustained-load",
+      name: "One process has been hot all session",
+      description:
+        "`avgCpuPercent` is the session-to-date average the sampler maintains, so this cannot be a one-frame spike.",
+      source: "user",
+      when: {
+        conditions: [
+          { field: "facts.ended", op: "eq", value: false },
+          { field: "live.elapsedSeconds", op: "gte", value: 120 },
+          {
+            field: "live.metrics.eggs",
+            quant: "any",
+            where: { conditions: [{ field: "avgCpuPercent", op: "gte", value: 50 }] },
+          },
+        ],
+      },
+      emit: {
+        level: "medium",
+        title: "A process has averaged {{live.metrics.eggs.0.avgCpuPercent|percent}} CPU for this session",
+        detail: "Sustained load, not a spike — the difference between a busy build and a runaway loop.",
+        tags: ["resources"],
+        evidence: ["facts.processes.primary"],
+      },
+    },
   ],
 };
 

@@ -28,7 +28,7 @@ import type { When } from "../src/regimen/predicate.ts";
 import { resolvePath } from "../src/regimen/predicate.ts";
 import { DEFAULT_PACK } from "../src/regimen/defaults.ts";
 import { CHART_EVENT_TYPES } from "../src/core/events.ts";
-import { withLive } from "../src/core/live.ts";
+import { withLive, metricsAt, metricsFromFrames } from "../src/core/live.ts";
 import { buildFacts } from "../src/facts/build.ts";
 import { deriveRuns, pickRun } from "../src/facts/runs.ts";
 import { resetEventIds, session } from "./fixtures.ts";
@@ -90,7 +90,11 @@ section("catalogue: every fact path exists");
     nowMs: facts.lastActivityAt + 60_000,
     busy: true,
     status: "working",
-    metrics: { eggs: [{ pid: 11, name: "node", cpuPercent: 40, cpuSeconds: 12, rssBytes: 1024 }] },
+    metrics: {
+      eggs: [{ pid: 11, name: "node", cpuPercent: 40, cpuSeconds: 12, rssBytes: 1024 }],
+      agent: { cpuPercent: 20, cpuSeconds: 30, rssBytes: 2048 },
+      host: { cpuCores: 8, cpuPercent: 55, memTotalBytes: 8_000, memAvailableBytes: 3_000, memPercent: 62, load1: 1.2 },
+    },
   });
   const missing: string[] = [];
   for (const field of LIVE_FIELDS) {
@@ -98,6 +102,34 @@ section("catalogue: every fact path exists");
     if (value === undefined || value === null) missing.push(field.path);
   }
   checkEqual("no live field is a lie", missing, []);
+}
+
+section("catalogue: resources are a snapshot, not a time series");
+
+{
+  const frames = [
+    { ts: 5_000, eggs: [{ eggPid: 11, name: "node", cpuSeconds: 1, rssBytes: 100 }], host: { cpuSeconds: 10, cpuIdleSeconds: 30, cpuCount: 8, memTotalBytes: 100, memAvailableBytes: 40 } },
+    { ts: 10_000, eggs: [{ eggPid: 11, name: "node", cpuSeconds: 6, rssBytes: 200 }], host: { cpuSeconds: 20, cpuIdleSeconds: 35, cpuCount: 8, memTotalBytes: 100, memAvailableBytes: 30 } },
+  ];
+  const snapshot = metricsFromFrames(frames);
+  // 5 CPU-seconds over 5 seconds = 1 core = 100%.
+  checkEqual("a counter becomes a percentage", snapshot.eggs?.[0]?.cpuPercent, 100);
+  checkEqual("RSS is the newest gauge", snapshot.eggs?.[0]?.rssBytes, 200);
+  // (20-10) cpu, (35-30) idle → 50% busy.
+  checkEqual("host CPU is derived the same way", snapshot.host?.cpuPercent, 50);
+  checkEqual("host memory is used/total", snapshot.host?.memPercent, 70);
+
+  const atEarlier = metricsAt(frames, 5_000);
+  checkEqual("an anchor before the newest frame sees that moment", atEarlier.eggs?.[0]?.rssBytes, 100);
+  checkEqual("a single frame has no rate yet", atEarlier.eggs?.[0]?.cpuPercent, 0);
+  checkEqual("no frames means no snapshot", metricsFromFrames([]), {});
+
+  const exited = metricsFromFrames([
+    frames[0]!,
+    frames[1]!,
+    { ts: 15_000, eggs: [], host: frames[1]!.host },
+  ]);
+  checkEqual("an egg that left the newest frame keeps its last sample", exited.eggs?.[0]?.rssBytes, 200);
 }
 
 section("catalogue: every event path exists");

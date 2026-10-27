@@ -9,6 +9,7 @@
  */
 
 import type { ChartEvent } from "../../../src/core/events.ts";
+import type { MetricsFrameLike } from "../../../src/core/live.ts";
 
 export interface Demo {
   id: string;
@@ -17,6 +18,79 @@ export interface Demo {
   /** One line about what the session shows. */
   description: string;
   build: () => ChartEvent[];
+  /**
+   * Resource samples for the session, oldest → newest.
+   *
+   * The real host streams these on their own channel (Absence samples every 5s);
+   * the editor keeps a handful so the CPU / memory rules have something to judge.
+   * Omitted = no sampler, and every `live.metrics.*` path stays absent — which is
+   * what a rule has to survive anyway.
+   */
+  metrics?: () => MetricsFrameLike[];
+}
+
+/**
+ * A synthetic sampler for a demo: a few 5-second frames with plausible numbers.
+ *
+ * `cores` is CPU seconds burned per frame per egg (so a rate is derived exactly
+ * the way the real sampler derives it), `rss` is MiB, and the host is a machine
+ * with a fixed core count and memory.
+ */
+function metricsBuilder(start: number, specs: Array<{
+  at: number;
+  eggs: Array<{ pid: number; name: string; kind?: "agent" | "primary" | "tool"; status?: "running" | "exited"; cores: number; rssMiB: number }>;
+  hostCpu?: number;
+  hostMemPercent?: number;
+}>): MetricsFrameLike[] {
+  const cpuCount = 8;
+  const memTotal = 16 * 1024 * 1024 * 1024;
+  // Cumulative counters, accumulated across frames like a real sampler. CPU is
+  // integrated over the *elapsed* time between frames, so a rate derived later
+  // equals `cores` exactly, however far apart the samples are.
+  const cpuTotals = new Map<number, number>();
+  const lastTs = new Map<number, number>();
+  let hostCpu = 0;
+  let hostIdle = 0;
+  let previousTs = specs.length > 0 ? Math.floor((start + specs[0]!.at) / 5000) * 5000 : start;
+  return specs.map((spec, index) => {
+    const ts = Math.floor((start + spec.at) / 5000) * 5000;
+    const elapsed = Math.max(0, (ts - previousTs) / 1000);
+    previousTs = ts;
+    const eggs = spec.eggs.map((egg) => {
+      const before = cpuTotals.get(egg.pid) ?? 0;
+      const span = index === 0 ? 0 : elapsed || Math.max(0, (ts - (lastTs.get(egg.pid) ?? ts)) / 1000);
+      const after = before + egg.cores * span;
+      cpuTotals.set(egg.pid, after);
+      lastTs.set(egg.pid, ts);
+      return {
+        eggPid: egg.pid,
+        name: egg.name,
+        ...(egg.kind ? { kind: egg.kind } : {}),
+        status: egg.status ?? "running",
+        cpuSeconds: after,
+        rssBytes: egg.rssMiB * 1024 * 1024,
+        processCount: 1,
+        // Session average, as the real sampler keeps it.
+        avgCpuCoresSession: index === 0 ? egg.cores : (before + egg.cores) / 2,
+        avgRssBytesSession: egg.rssMiB * 1024 * 1024,
+      };
+    });
+    const cpuPercent = spec.hostCpu ?? 20;
+    hostCpu += (cpuPercent / 100) * cpuCount * elapsed;
+    hostIdle += (1 - cpuPercent / 100) * cpuCount * elapsed;
+    return {
+      ts,
+      eggs,
+      host: {
+        cpuSeconds: hostCpu,
+        cpuIdleSeconds: hostIdle,
+        cpuCount,
+        memTotalBytes: memTotal,
+        memAvailableBytes: memTotal * (1 - (spec.hostMemPercent ?? 45) / 100),
+        load1: 1.2,
+      },
+    };
+  });
 }
 
 function sessionBuilder(id: string, start: number) {
@@ -36,7 +110,8 @@ function sessionBuilder(id: string, start: number) {
  * outside the project, a process left running.
  */
 export function demoEvents(): ChartEvent[] {
-  const s = sessionBuilder("research", Date.now() - 2 * 60 * 60_000);
+  const start = Date.now() - 2 * 60 * 60_000;
+  const s = sessionBuilder("research", start);
   return [
     s.event("agent_start", { model: "qwen3-4b" }, 0),
     s.event("message", { role: "user", content: "调研 Acme 公司，把结果放进 company/ 目录" }),
@@ -83,7 +158,8 @@ export function demoEvents(): ChartEvent[] {
  * success. A window rule fires while the streak builds, then goes quiet.
  */
 export function flailingEvents(): ChartEvent[] {
-  const s = sessionBuilder("flail", Date.now() - 30 * 60_000);
+  const start = Date.now() - 30 * 60_000;
+  const s = sessionBuilder("flail", start);
   const events: ChartEvent[] = [
     s.event("agent_start", { model: "qwen3-4b" }, 0),
     s.event("message", { role: "user", content: "把测试全部跑通" }),
@@ -112,7 +188,8 @@ export function flailingEvents(): ChartEvent[] {
  * the same pack, three different reports.
  */
 export function sessionEvents(): ChartEvent[] {
-  const s = sessionBuilder("session", Date.now() - 3 * 60 * 60_000);
+  const start = Date.now() - 3 * 60 * 60_000;
+  const s = sessionBuilder("session", start);
   const events: ChartEvent[] = [];
 
   // ── round 1: the pricing page times out and nothing recovers it ──────────
@@ -180,17 +257,38 @@ export const DEMOS: Demo[] = [
     label: "研究任务 · 两个交付物",
     description: "一次调研：交付了两个文件，定价页两次超时，还留了个进程在后台。",
     build: demoEvents,
+    // The scraper the agent left running is the hot one: 2.4 cores for a minute.
+    metrics: () =>
+      metricsBuilder(Date.now() - 2 * 60 * 60_000, [
+        { at: 5_000, eggs: [{ pid: 8123, name: "node", cores: 0.2, rssMiB: 120 }], hostCpu: 18, hostMemPercent: 44 },
+        { at: 30_000, eggs: [{ pid: 8123, name: "node", cores: 1.1, rssMiB: 480 }], hostCpu: 42, hostMemPercent: 48 },
+        { at: 60_000, eggs: [{ pid: 8123, name: "node", cores: 2.4, rssMiB: 1150 }], hostCpu: 88, hostMemPercent: 51 },
+      ]),
   },
   {
     id: "flailing",
     label: "反复失败 · 五次后修复",
     description: "两分钟内连败五次，改完代码才跑通 —— 用来看时间窗口怎么滑。",
     build: flailingEvents,
+    // A test run: bursty CPU that settles once the fix lands, and a machine
+    // whose memory is nearly gone the whole time.
+    metrics: () =>
+      metricsBuilder(Date.now() - 30 * 60_000, [
+        { at: 5_000, eggs: [{ pid: 7001, name: "node", cores: 3.8, rssMiB: 640 }], hostCpu: 72, hostMemPercent: 93 },
+        { at: 40_000, eggs: [{ pid: 7001, name: "node", cores: 4.2, rssMiB: 720 }], hostCpu: 81, hostMemPercent: 94 },
+        { at: 90_000, eggs: [{ pid: 7001, name: "node", cores: 0.6, rssMiB: 300 }], hostCpu: 24, hostMemPercent: 90 },
+      ]),
   },
   {
     id: "session",
     label: "多轮会话 · 三轮事件",
     description: "同一段会话里的三轮：一轮没恢复、一轮恢复成功、一轮留下进程。",
     build: sessionEvents,
+    // Quiet: the same pack says nothing about resources here.
+    metrics: () =>
+      metricsBuilder(Date.now() - 3 * 60 * 60_000, [
+        { at: 5_000, eggs: [{ pid: 9311, name: "node", cores: 0.15, rssMiB: 90 }], hostCpu: 12, hostMemPercent: 38 },
+        { at: 45_000, eggs: [{ pid: 9311, name: "node", cores: 0.2, rssMiB: 95 }], hostCpu: 14, hostMemPercent: 39 },
+      ]),
   },
 ];

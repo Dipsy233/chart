@@ -262,6 +262,13 @@ Done and tested:
   phase (a `facts.ended` condition, not a field), an operator catalogue for
   editors, validation with paths, templates, priority, suppression, cooldowns,
   fail-open errors
+- **resources as conditions**: `live.metrics` carries the host's sampler as a
+  snapshot — per-egg `cpuPercent`/`cpuSeconds`/`rssBytes`/`processCount` plus
+  session averages, the whole `agent` tree, and the `host`'s CPU/memory/load.
+  `metricsFromFrames` does the counter→rate derivation Absence's dashboard does,
+  so a rule and a chart never disagree about what 90% meant; `metricsAt` makes
+  playback show the resources of the scrubbed moment, not of the session end.
+  Templates gained `percent`, `bytes` and `round` for these numbers.
 - three modes: `observe` / `record` + `replayReport` (recorded findings, no
   re-judging) / `simulate` (hypothetical, labelled)
 - packs on disk: `PackStore` (validate-before-write, atomic, slug names, a

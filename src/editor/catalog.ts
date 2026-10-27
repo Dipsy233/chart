@@ -148,12 +148,35 @@ export const LIVE_FIELDS: FieldInfo[] = [
   { path: "live.stalledSeconds", kind: "number", label: "seconds since the last event" },
   { path: "live.busy", kind: "boolean", label: "the agent is working", hint: "false means it is waiting on the user" },
   { path: "live.status", kind: "string", label: "agent status" },
-  { path: "live.metrics.eggs", kind: "array", label: "resource snapshot per process", element: [
+
+  /* ── resources: the host's sampler, reduced to a snapshot ──────────────── */
+  { path: "live.metrics.eggs", kind: "array", label: "resource snapshot per process", hint: "one entry per egg; absent when the host has no sampler", element: [
     { path: "pid", kind: "number", label: "pid" },
     { path: "name", kind: "string", label: "name" },
+    { path: "kind", kind: "string", label: "agent, primary or tool" },
+    { path: "status", kind: "string", label: "running or exited" },
+    { path: "cpuPercent", kind: "number", label: "CPU %", hint: "percent of one core; above 100 means several cores" },
+    { path: "cpuSeconds", kind: "number", label: "CPU seconds", hint: "cumulative, not a rate" },
+    { path: "rssBytes", kind: "number", label: "memory (bytes)" },
+    { path: "processCount", kind: "number", label: "processes in this egg" },
+    { path: "avgCpuPercent", kind: "number", label: "session-average CPU %" },
+    { path: "avgRssBytes", kind: "number", label: "session-average memory (bytes)" },
+  ] },
+  { path: "live.metrics.agent", kind: "object", label: "the whole agent tree", element: [
     { path: "cpuPercent", kind: "number", label: "CPU %" },
     { path: "cpuSeconds", kind: "number", label: "CPU seconds" },
     { path: "rssBytes", kind: "number", label: "memory (bytes)" },
+    { path: "processCount", kind: "number", label: "processes in the tree" },
+    { path: "avgCpuPercent", kind: "number", label: "session-average CPU %" },
+    { path: "avgRssBytes", kind: "number", label: "session-average memory (bytes)" },
+  ] },
+  { path: "live.metrics.host", kind: "object", label: "the machine it runs on", element: [
+    { path: "cpuCores", kind: "number", label: "cores" },
+    { path: "cpuPercent", kind: "number", label: "host CPU %", hint: "0–100 across the whole machine" },
+    { path: "memTotalBytes", kind: "number", label: "installed memory (bytes)" },
+    { path: "memAvailableBytes", kind: "number", label: "available memory (bytes)" },
+    { path: "memPercent", kind: "number", label: "host memory used %" },
+    { path: "load1", kind: "number", label: "1-minute load average" },
   ] },
 ];
 

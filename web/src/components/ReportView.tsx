@@ -18,6 +18,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ChartEvent } from "../../../src/core/events.ts";
+import { metricsAt } from "../../../src/core/live.ts";
+import type { MetricsFrameLike } from "../../../src/core/live.ts";
 import { DEFAULT_PACK } from "../../../src/regimen/defaults.ts";
 import { EXAMPLE_PACK } from "../../../src/regimen/examples.ts";
 import type { RulePack } from "../../../src/regimen/rule.ts";
@@ -42,6 +44,7 @@ export function ReportView({
   pack,
   packs,
   packName,
+  metrics,
   onSelectRun,
   onSelectPack,
   onActivatePack,
@@ -58,6 +61,8 @@ export function ReportView({
   pack: RulePack;
   packs: PackSummary[];
   packName: string | undefined;
+  /** The session's resource samples, if the host has a sampler. */
+  metrics?: readonly MetricsFrameLike[];
   onSelectRun: (id: string) => void;
   onSelectPack: (name: string | undefined) => void;
   onActivatePack: (name: string | undefined) => void;
@@ -101,11 +106,13 @@ export function ReportView({
       pack,
       anchor: frame.anchor,
       phase: frame.atEnd ? "settled" : "live",
-      live: { nowMs: frame.anchor },
+      // The snapshot is of the frame's moment, so scrubbing backwards shows the
+      // resources of that moment — not the newest sample of the session.
+      live: { nowMs: frame.anchor, metrics: metrics ? metricsAt(metrics, frame.anchor) : undefined },
     });
     const rendered = report(observation, ZH_REPORT, { nowMs: frame.anchor });
     return { frame, observation, rendered };
-  }, [events, view, cursor, pack]);
+  }, [events, view, cursor, pack, metrics]);
 
   const seekTo = (globalIndex: number) => {
     if (!view) return;

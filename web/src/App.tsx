@@ -32,6 +32,7 @@ import {
   type RulePack,
 } from "../../src/index.ts";
 import { adaptivePackIO, backendKind, downloadPack, type Backend } from "./lib/storage.ts";
+import type { MetricsFrameLike } from "../../src/core/live.ts";
 import { DEMOS } from "./lib/demo.ts";
 import { renumber } from "./lib/events.ts";
 import { pickRunView, runViews } from "./lib/runs.ts";
@@ -80,6 +81,7 @@ export function App() {
 
   const [demoId, setDemoId] = useState(DEMOS[0]!.id);
   const [events, setEvents] = useState<ChartEvent[]>(() => renumber(DEMOS[0]!.build()));
+  const [metrics, setMetrics] = useState<MetricsFrameLike[]>(() => DEMOS[0]!.metrics?.() ?? []);
   const [runId, setRunId] = useState<string | undefined>(undefined);
   const [selectedEventIndex, setSelectedEventIndex] = useState<number | undefined>(undefined);
   const [allEventsMode, setAllEventsMode] = useState(false);
@@ -289,6 +291,7 @@ export function App() {
     if (!demo) return;
     setDemoId(demo.id);
     setEvents(renumber(demo.build()));
+    setMetrics(demo.metrics?.() ?? []);
     setRunId(undefined);
     setSelectedEventIndex(undefined);
     setAllEventsMode(false);
@@ -351,6 +354,7 @@ export function App() {
         pack={pack}
         packs={packs}
         packName={packName}
+        metrics={metrics}
         onSelectRun={setRunId}
         onSelectPack={(name) => void openPack(name)}
         onActivatePack={(name) => void activatePack(name)}

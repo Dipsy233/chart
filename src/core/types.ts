@@ -270,19 +270,57 @@ export interface RunTrace {
  * Everything a rule may look at that is not in `Facts`. Kept separate so facts
  * stay a pure function of the event stream: `nowMs` is an *input*, not a clock
  * read, so a replayed evaluation still produces the same findings.
+ *
+ * `metrics` is the host's sampler, reduced to what a *rule* can decide on. It is
+ * deliberately a snapshot, not a history: Chart never stores time series, and a
+ * rule that wants "sustained for a minute" says so in its own conditions
+ * (`live.elapsedSeconds`) rather than asking the engine to remember frames.
+ *
+ * The shape mirrors Absence's `EggMetricSample` / `HostMetricSample`
+ * (`packages/core/src/metrics.ts`) with one difference: Absence keeps CPU as a
+ * cumulative counter and lets the UI derive `rate()`. A rule cannot call a
+ * function, so the host converts the counter to `cpuPercent` before handing the
+ * snapshot over — the same number the dashboard draws, available to a predicate.
  */
 export interface MetricsSnapshot {
   eggs?: Array<{
+    /** The egg root pid (Absence: `eggPid`). */
     pid: number;
     name: string;
-    /** Instantaneous CPU, when the sampler reports it. */
+    /** `agent` is the runtime itself; `primary`/`tool` are eggs the agent laid. */
+    kind?: "agent" | "primary" | "tool";
+    status?: "running" | "exited";
+    /** Instantaneous CPU, in percent of one core (can exceed 100 on many cores). */
     cpuPercent?: number;
     /** Cumulative CPU seconds. */
     cpuSeconds?: number;
     rssBytes?: number;
+    /** How many OS processes roll into this egg. */
+    processCount?: number;
+    /** Session-to-date averages, so a rule can tell "spiky" from "always hot". */
+    avgCpuPercent?: number;
+    avgRssBytes?: number;
   }>;
-  agent?: { cpuPercent?: number; rssBytes?: number };
-  host?: { cpuCores?: number; memBytes?: number };
+  /** The whole agent tree, including the runtime's own processes. */
+  agent?: {
+    cpuPercent?: number;
+    cpuSeconds?: number;
+    rssBytes?: number;
+    processCount?: number;
+    avgCpuPercent?: number;
+    avgRssBytes?: number;
+  };
+  /** The machine the run is on, so "90% of the host" and "90% of a core" differ. */
+  host?: {
+    cpuCores?: number;
+    /** Host CPU usage, 0–100. */
+    cpuPercent?: number;
+    memTotalBytes?: number;
+    memAvailableBytes?: number;
+    /** Host memory used, 0–100. */
+    memPercent?: number;
+    load1?: number;
+  };
 }
 
 export interface LiveContext {

@@ -152,6 +152,16 @@ function applyFilters(value: TemplateValue, filters: Filter[]): string {
       case "short":
         current = shortenPath(stringify(current));
         break;
+      case "percent":
+        // `86.36363636` is what a sampler actually reports; a report says 86%.
+        current = typeof current === "number" ? formatPercent(current, filter.arg) : "—";
+        break;
+      case "bytes":
+        current = typeof current === "number" ? formatBytes(current) : "—";
+        break;
+      case "round":
+        current = typeof current === "number" ? formatNumber(current, filter.arg) : stringify(current);
+        break;
       default:
         // Unknown filter: leave the value alone rather than failing the render.
         break;
@@ -192,6 +202,34 @@ export function formatDuration(ms: number): string {
   if (hours > 0) return `${hours}h ${String(minutes).padStart(2, "0")}m`;
   if (minutes > 0) return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
   return `${seconds}s`;
+}
+
+/** `86%`, `12.5%`, `0%` — the precision a percentage deserves. */
+export function formatPercent(percent: number, digits?: string): string {
+  if (!Number.isFinite(percent)) return "—";
+  const places = digits !== undefined ? Number(digits) : percent >= 10 ? 0 : 1;
+  return `${percent.toFixed(Number.isFinite(places) ? Math.max(0, Math.min(4, places)) : 0)}%`;
+}
+
+/** `1.2 GiB`, `512 MiB`, `0 B` — binary units, the way a process table reads. */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value >= 100 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
+}
+
+/** A number with a fixed number of decimals (default: as many as it needs, up to 2). */
+export function formatNumber(value: number, digits?: string): string {
+  if (!Number.isFinite(value)) return "—";
+  if (digits === undefined) return String(Math.round(value * 100) / 100);
+  const places = Number(digits);
+  return value.toFixed(Number.isFinite(places) ? Math.max(0, Math.min(6, places)) : 0);
 }
 
 /** Keep the tail of a path — the part a human recognises. */

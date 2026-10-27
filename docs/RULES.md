@@ -238,6 +238,69 @@ The ladder stops here on purpose (`docs/DESIGN.md` §3).
 | a moment in time | `timestamp` (`gte`, `between`, …) |
 | resources | `live.metrics.eggs[*].cpuPercent` — a snapshot, not an event |
 
+## Resources: `live.metrics`
+
+Resource usage is **not** an event: the host samples the process tree on its own
+cadence (Absence: every 5 s) and hands Chart a snapshot. That is why it lives
+under `live` — a rule about CPU is only ever about *this moment*, never about a
+recorded one — and why it is absent on a run judged without a sampler.
+
+```jsonc
+{ "field": "live.metrics.eggs", "quant": "any",
+  "where": { "conditions": [{ "field": "cpuPercent", "op": "gte", "value": 90 }] } }
+```
+
+| Path | Kind | Meaning |
+|---|---|---|
+| `live.metrics.eggs[*]` | array | one entry per egg (a process the agent laid) |
+| `…eggs[i].pid`, `.name`, `.kind`, `.status` | | `kind` is `agent`/`primary`/`tool`, `status` is `running`/`exited` |
+| `…eggs[i].cpuPercent` | number | instantaneous CPU, **percent of one core** — 250 means 2.5 cores |
+| `…eggs[i].cpuSeconds` | number | cumulative CPU seconds (a counter, not a rate) |
+| `…eggs[i].rssBytes` | number | resident memory, bytes |
+| `…eggs[i].processCount` | number | OS processes rolled into this egg |
+| `…eggs[i].avgCpuPercent`, `.avgRssBytes` | number | session-to-date averages — what separates a spike from a leak |
+| `live.metrics.agent` | object | the whole agent tree, same fields without `pid`/`kind`/`status` |
+| `live.metrics.host` | object | the machine: `cpuCores`, `cpuPercent` (0–100), `memTotalBytes`, `memAvailableBytes`, `memPercent`, `load1` |
+
+**A counter becomes a percentage, and that conversion is the host's job.** The
+sampler reports cumulative CPU seconds because that is what the OS gives it; a
+rule cannot call `rate()`, so the host converts before handing the snapshot over
+(Chart's `metricsFromFrames` does exactly the derivation Absence's dashboard
+does). The same numbers are what the dashboard draws, so a rule and a chart never
+disagree about what "90%" meant.
+
+**Memory is a level, CPU is a rate.** `rssBytes` is a gauge — "holding 1 GiB" is
+meaningful on its own. `cpuPercent` is derived from two samples, so a single
+frame reports `0`, which is honest: no rate is knowable yet.
+
+**Nothing here is a time series.** A rule that wants "hot for a minute" writes
+it in its own conditions (`live.elapsedSeconds`, or `avgCpuPercent`), because
+facts are thresholds-free and the engine keeps no history of frames.
+
+### Worked examples
+
+```jsonc
+// one process burning a core
+{ "field": "facts.ended", "op": "eq", "value": false }
+{ "field": "live.metrics.eggs", "quant": "any",
+  "where": { "conditions": [{ "field": "cpuPercent", "op": "gte", "value": 90 }] } }
+
+// a memory hog: a level check, not a rate
+{ "field": "live.metrics.eggs", "quant": "any",
+  "where": { "conditions": [
+    { "field": "rssBytes", "op": "gte", "value": 1073741824 },
+    { "field": "status", "op": "eq", "value": "running" } ] } }
+
+// the machine, not the eggs — 85% of the host is an incident on its own
+{ "combinator": "any", "conditions": [
+  { "field": "live.metrics.host.cpuPercent", "op": "gte", "value": 85 },
+  { "field": "live.metrics.host.memPercent", "op": "gte", "value": 92 } ] }
+
+// sustained load, not a one-frame spike
+{ "field": "live.metrics.eggs", "quant": "any",
+  "where": { "conditions": [{ "field": "avgCpuPercent", "op": "gte", "value": 50 }] } }
+```
+
 ## Templates
 
 `emit.title`, `emit.detail`, and report cells are templates.
@@ -262,6 +325,9 @@ The ladder stops here on purpose (`docs/DESIGN.md` §3).
 | `lines` | line count of a string |
 | `upper`, `lower` | case |
 | `short` | last two path segments |
+| `percent`, `percent: 2` | `86.36363636` → `86%` (≥10 → no decimals, below → one; the argument fixes it) |
+| `bytes` | `1234567` → `1.2 MiB` (binary units) |
+| `round`, `round: 3` | trims a float; no argument keeps two decimals |
 
 `vars.window` holds the numbers from the windows a rule ran: `count`, `streak`,
 `gapMs`, `selected`, `ids`, plus `0.count`, `1.count`… when there are several.

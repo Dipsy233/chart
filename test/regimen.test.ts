@@ -933,3 +933,14 @@ section("the example pack");
 }
 
 finish();
+
+section("templates: resource numbers read like numbers");
+
+{
+  checkEqual("a percentage loses its noise", renderTemplate("{{vars.v|percent}}", { vars: { v: 86.36363636 } }), "86%");
+  checkEqual("a small percentage keeps one decimal", renderTemplate("{{vars.v|percent}}", { vars: { v: 3.14159 } }), "3.1%");
+  checkEqual("digits can be asked for", renderTemplate("{{vars.v|percent:2}}", { vars: { v: 86.3636 } }), "86.36%");
+  checkEqual("bytes use binary units", renderTemplate("{{vars.v|bytes}}", { vars: { v: 1150 * 1024 * 1024 } }), "1.1 GiB");
+  checkEqual("a missing number is not a zero", renderTemplate("{{vars.v|percent}}", { vars: {} }), "—");
+  checkEqual("round trims to two decimals", renderTemplate("{{vars.v|round}}", { vars: { v: 0.123456 } }), "0.12");
+}

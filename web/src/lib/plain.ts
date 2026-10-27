@@ -109,6 +109,8 @@ const ZH_FIELD: Record<string, string> = {
   "live.busy": "代理是否在工作",
   "live.status": "代理状态",
   "live.metrics.eggs": "每个进程的资源快照",
+  "live.metrics.agent": "代理整棵进程树",
+  "live.metrics.host": "这台机器",
 };
 
 /** Fallback for paths with no Chinese name: keep the catalogue's English label. */
@@ -503,6 +505,18 @@ const ZH_PAYLOAD: Record<string, string> = {
   exitedAt: "退出时间",
   toolCallId: "调用 ID",
   durationMs: "耗时(毫秒)",
+  // resource fields (live.metrics.eggs[i].*, and the host object)
+  cpuPercent: "CPU 占用 %",
+  cpuSeconds: "CPU 秒数",
+  rssBytes: "内存占用(字节)",
+  avgCpuPercent: "会话平均 CPU %",
+  avgRssBytes: "会话平均内存(字节)",
+  processCount: "进程数",
+  cpuCores: "CPU 核心数",
+  memTotalBytes: "内存总量(字节)",
+  memAvailableBytes: "可用内存(字节)",
+  memPercent: "内存占用 %",
+  load1: "1 分钟负载",
 };
 
 export function zhPayload(path: string): string {
@@ -541,6 +555,7 @@ export function zhQuant(quant: string): string {
 /* ── field groups, for a picker that is readable at a glance ─────────────── */
 
 export function fieldGroup(path: string): string {
+  if (path.startsWith("live.metrics")) return "资源占用";
   if (path.startsWith("live.")) return "实时状态";
   if (path.startsWith("facts.commands") || path === "facts.failed" || path === "facts.commandFacts") return "命令";
   if (path.startsWith("facts.files") || path.startsWith("facts.changes") || path.startsWith("facts.counts")) return "文件";
@@ -657,6 +672,32 @@ export const CONDITION_PRESETS: ConditionPreset[] = [
     build: () => ({ field: "live.stalledSeconds", op: "gte", value: 120 }),
   },
   {
+    id: "cpu-hot",
+    label: "有进程 CPU 超过…%",
+    hint: "宿主采样器的快照，百分比是单核的百分比",
+    build: () => ({
+      field: "live.metrics.eggs",
+      quant: "any",
+      where: { conditions: [{ field: "cpuPercent", op: "gte", value: 80 }] },
+    }),
+  },
+  {
+    id: "mem-hog",
+    label: "有进程内存超过…GB",
+    hint: "常驻内存（RSS）是电平值，不是增速",
+    build: () => ({
+      field: "live.metrics.eggs",
+      quant: "any",
+      where: { conditions: [{ field: "rssBytes", op: "gte", value: 1024 * 1024 * 1024 }] },
+    }),
+  },
+  {
+    id: "host-busy",
+    label: "整机 CPU 超过…%",
+    hint: "看的是整台机器，不是单个进程",
+    build: () => ({ field: "live.metrics.host.cpuPercent", op: "gte", value: 85 }),
+  },
+  {
     id: "error-event",
     label: "出现错误事件",
     hint: "error 事件，通常比失败命令更弱",
@@ -686,6 +727,10 @@ export const TEMPLATE_VARS: TemplateVar[] = [
   { expr: "facts.run.status", label: "运行状态" },
   { expr: "live.elapsedSeconds", label: "已运行秒数" },
   { expr: "live.stalledSeconds", label: "停滞秒数" },
+  { expr: "live.metrics.agent.cpuPercent", label: "代理 CPU %" },
+  { expr: "live.metrics.agent.rssBytes", label: "代理内存（字节）" },
+  { expr: "live.metrics.host.cpuPercent", label: "整机 CPU %" },
+  { expr: "live.metrics.host.memPercent", label: "整机内存占用 %" },
 ];
 
 /* ── enumerated values: a select instead of a free-text box ──────────────── */
@@ -713,6 +758,7 @@ const ZH_VALUE: Record<string, string> = {
   unknown: "未知",
   primary: "代理启动",
   tool: "辅助",
+  agent: "代理本身",
 };
 
 export function zhEnum(value: string): string {
@@ -725,6 +771,8 @@ const ENUM_FIELDS: Record<string, string[]> = {
   "payload.role": ["user", "assistant", "system"],
   "payload.status": ["running", "exited"],
   "payload.reason": ["completed", "aborted", "error"],
+  "status": ["running", "exited"],
+  "kind": ["agent", "primary", "tool"],
 };
 
 /** The known values of an enumerated field, so the editor can offer a select. */

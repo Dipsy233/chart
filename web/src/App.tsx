@@ -20,8 +20,10 @@ import {
   PACK_NAME_RE,
   PackStore,
   isIdTaken,
+  moveRuleTo,
   parsePack,
   removeRule,
+  replaceRuleAt,
   serializePack,
   upsertRule,
   validatePack,
@@ -153,6 +155,18 @@ export function App() {
 
   /* ── persistence ────────────────────────────────────────── */
 
+  // Selection is a *position*, not an id.
+  //
+  // The id field in the editor fires per keystroke, so keying the selection on
+  // the id meant a half-typed id selected nothing and the panel jumped back to
+  // `rules[0]` — the user's edit landing in a different rule than the one they
+  // were looking at. The id is a value; the index is the identity.
+  const selectedIndex = useMemo(() => {
+    if (selectedRuleId === undefined) return 0;
+    const at = pack.rules.findIndex((rule) => rule.id === selectedRuleId);
+    return at === -1 ? 0 : at;
+  }, [pack, selectedRuleId]);
+
   const persist = useCallback(
     async (name: string | undefined, next: RulePack) => {
       setPack(next);
@@ -171,19 +185,19 @@ export function App() {
 
   const updateRule = useCallback(
     (rule: Rule) => {
+      // Editing is positional: the rule being edited is the one at
+      // `selectedIndex`, whatever its id says right now. Keying on the id made a
+      // rename append a new rule (see `replaceRuleAt` in the editor model).
+      const next = replaceRuleAt(pack, selectedIndex, rule);
       setSelectedRuleId(rule.id);
-      void persist(packName, upsertRule(pack, rule));
+      void persist(packName, next);
     },
-    [pack, packName, persist],
+    [pack, packName, persist, selectedIndex],
   );
 
   const moveRule = useCallback(
     (from: number, to: number) => {
-      const rules = [...pack.rules];
-      const [moved] = rules.splice(from, 1);
-      if (!moved) return;
-      rules.splice(to, 0, moved);
-      void persist(packName, { ...pack, rules });
+      void persist(packName, moveRuleTo(pack, from, to));
     },
     [pack, packName, persist],
   );
@@ -274,20 +288,24 @@ export function App() {
     let counter = 2;
     while (isIdTaken(pack, id)) id = `user.${template.id}-${counter++}`;
     const rule: Rule = { ...template.build(id), description: template.desc };
-    updateRule(rule);
     setTemplateOpen(false);
     setView("rules");
+    // Appending is the one edit that *is* an upsert.
+    setSelectedRuleId(rule.id);
+    void persist(packName, upsertRule(pack, rule));
   };
 
   const duplicateRule = (rule: Rule) => {
     let id = `${rule.id}.copy`;
     let counter = 2;
     while (isIdTaken(pack, id)) id = `${rule.id}.copy-${counter++}`;
-    updateRule({
+    const copy = {
       ...structuredClone(rule),
       id,
       name: `${rule.name ?? rule.id} · 副本`,
-    });
+    };
+    setSelectedRuleId(id);
+    void persist(packName, upsertRule(pack, copy));
   };
 
   const deleteRule = (rule: Rule) => {
@@ -407,7 +425,8 @@ export function App() {
     if (gone) notify(`已删除会话「${gone.name}」`);
   };
 
-  const selectedRule = pack.rules.find((rule) => rule.id === selectedRuleId) ?? pack.rules[0];
+  // Selection is positional; see the derivation above.
+  const selectedRule = pack.rules[selectedIndex];
 
   /** The 事件会话 column's rows: the user's sessions, then the demos. */
   const subjects: Subject[] = [
@@ -543,9 +562,11 @@ export function App() {
 
           {selectedRule ? (
             <RuleEditor
-              key={selectedRule.id}
               rule={selectedRule}
               pack={pack}
+              events={events}
+              runId={selectedView?.run.id}
+              runLabel={selectedView ? `第 ${selectedIndex + 1} 轮` : undefined}
               readOnly={packName === undefined || packName === EXAMPLE_PACK_NAME}
               onFork={() => createPack()}
               onChange={updateRule}

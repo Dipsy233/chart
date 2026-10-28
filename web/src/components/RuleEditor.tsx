@@ -21,10 +21,12 @@
  */
 
 import { useMemo, useRef, useState } from "react";
-import { isIdTaken, phaseFromWhen, suggestId, validateRule, withDerivedPhase } from "../../../src/editor/draft.ts";
+import type { ChartEvent } from "../../../src/core/events.ts";
+import { phaseFromWhen, suggestId, validateRule, withDerivedPhase } from "../../../src/editor/draft.ts";
 import type { Rule, RulePack } from "../../../src/regimen/rule.ts";
 import type { AttentionLevel } from "../../../src/core/types.ts";
 import { ConditionList } from "./Conditions.tsx";
+import { RulePreviewPanel } from "./RulePreviewPanel.tsx";
 import { describeRuleZh, EVIDENCE_CHOICES, TEMPLATE_VARS, zhEvidence, zhLevel } from "../lib/plain.ts";
 import { TagChips } from "./TagChips.tsx";
 import { JsonDialog } from "./JsonDialog.tsx";
@@ -46,6 +48,9 @@ export function RuleEditor({
   onDuplicate,
   onOpenReport,
   onNotify,
+  events,
+  runId,
+  runLabel,
 }: {
   rule: Rule;
   pack: RulePack;
@@ -57,6 +62,11 @@ export function RuleEditor({
   onOpenReport: () => void;
   /** A toast hook, used by the JSON dialog. */
   onNotify?: (text: string, tone?: "info" | "error") => void;
+  /** The stream to try the rule against. The 试跑 panel is the whole point. */
+  events: ChartEvent[];
+  /** Which run to preview; absent = the newest. */
+  runId?: string;
+  runLabel?: string;
 }) {
   const issues = useMemo(() => validateRule(rule), [rule]);
   const [jsonOpen, setJsonOpen] = useState(false);
@@ -256,7 +266,7 @@ export function RuleEditor({
                   onChange={(event) => patchEmit({ reason: event.target.value || undefined })}
                 />
               </label>
-              {isIdTaken(pack, rule.id) && pack.rules.filter((candidate) => candidate.id === rule.id).length > 1 ? (
+              {pack.rules.filter((candidate) => candidate.id === rule.id).length > 1 ? (
                 <div className="issue">
                   <span className="path">id</span>
                   <span>这个 id 和另一条规则重复了 —— 保存时会覆盖它</span>
@@ -281,6 +291,15 @@ export function RuleEditor({
 
           <ConditionList when={rule.when} onChange={patchWhen} />
         </section>
+
+        {/* ── 试跑: the loop closed, in place ───────────────── */}
+        <RulePreviewPanel
+          rule={rule}
+          events={events}
+          runId={runId}
+          runLabel={runLabel}
+          onOpenReport={onOpenReport}
+        />
 
         {/* ── 3 报告 ─────────────────────────────────────────── */}
         <section className="block">

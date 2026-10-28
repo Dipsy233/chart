@@ -363,9 +363,12 @@ export {
   operatorsForField,
   previewRule,
   upsertRule,
+  replaceRuleAt,
+  moveRuleTo,
   removeRule,
   resetPack,
   isIdTaken,
+  isIdTakenByOther,
   suggestId,
 } from "./editor/draft.ts";
 

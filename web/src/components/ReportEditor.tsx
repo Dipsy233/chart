@@ -251,6 +251,16 @@ function SectionCards({
           <span className="grip" {...sort.handleProps(index)} title="按住拖动，调整顺序">
             ⠿
           </span>
+          <div className="rule-card-main">
+            <div className="rule-card-line">
+              <span className="rule-card-name">{KIND_LABEL[section.kind].label}</span>
+              <span className="spacer" />
+              <span className="mono tiny muted">{section.kind}</span>
+            </div>
+            <div className="rule-card-line">
+              <span className="rule-card-desc">{titleOf(section) || KIND_LABEL[section.kind].hint}</span>
+            </div>
+          </div>
           {onDelete ? (
             <button
               type="button"
@@ -264,16 +274,6 @@ function SectionCards({
               ✕
             </button>
           ) : null}
-          <div className="rule-card-main">
-            <div className="rule-card-line">
-              <span className="rule-card-name">{KIND_LABEL[section.kind].label}</span>
-              <span className="spacer" />
-              <span className="mono tiny muted">{section.kind}</span>
-            </div>
-            <div className="rule-card-line">
-              <span className="rule-card-desc">{titleOf(section) || KIND_LABEL[section.kind].hint}</span>
-            </div>
-          </div>
         </div>
       ))}
       {sections.length === 0 ? <div className="empty">这份报告还没有区块。</div> : null}

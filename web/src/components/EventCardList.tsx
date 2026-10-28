@@ -95,6 +95,17 @@ export function EventCardList({
                     {String(position + 1).padStart(2, "0")}
                   </span>
                 )}
+                <div className="card-main">
+                  <div className="card-line">
+                    <span className="ev-type">{zhEventLabel(event.type)}</span>
+                    <span className="spacer" />
+                    <span className="ev-time">+{formatSpan(Math.max(0, event.timestamp - first))}</span>
+                  </div>
+                  <div className="card-line">
+                    <span className="ev-summary">{eventSummary(event)}</span>
+                    <span className="ev-meta">{eventMeta(event)}</span>
+                  </div>
+                </div>
                 {onDelete ? (
                   <button
                     type="button"
@@ -108,17 +119,6 @@ export function EventCardList({
                     ✕
                   </button>
                 ) : null}
-                <div className="card-main">
-                  <div className="card-line">
-                    <span className="ev-type">{zhEventLabel(event.type)}</span>
-                    <span className="spacer" />
-                    <span className="ev-time">+{formatSpan(Math.max(0, event.timestamp - first))}</span>
-                  </div>
-                  <div className="card-line">
-                    <span className="ev-summary">{eventSummary(event)}</span>
-                    <span className="ev-meta">{eventMeta(event)}</span>
-                  </div>
-                </div>
               </div>
             );
           })}

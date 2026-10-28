@@ -75,19 +75,6 @@ export function RuleCardList({
             <span className="grip" {...sort.handleProps(position)} title="按住拖动，调整判读顺序">
               ⠿
             </span>
-            {onDelete ? (
-              <button
-                type="button"
-                className="card-del"
-                title={`删除规则「${rule.name ?? rule.id}」`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onDelete(rule.id);
-                }}
-              >
-                ✕
-              </button>
-            ) : null}
             <div className="rule-card-main">
               <div className="rule-card-line">
                 <span className="rule-card-name">{rule.name || rule.id}</span>
@@ -115,6 +102,19 @@ export function RuleCardList({
                 )}
               </div>
             </div>
+            {onDelete ? (
+              <button
+                type="button"
+                className="card-del"
+                title={`删除规则「${rule.name ?? rule.id}」`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDelete(rule.id);
+                }}
+              >
+                ✕
+              </button>
+            ) : null}
           </div>
         );
       })}

@@ -12,12 +12,15 @@ import {
   describeRule,
   effectivePhase,
   isIdTaken,
+  isIdTakenByOther,
+  moveRuleTo,
   newRule,
   operatorsForField,
   impliedPhase,
   phaseFromWhen,
   previewRule,
   removeRule,
+  replaceRuleAt,
   resetPack,
   suggestId,
   upsertRule,
@@ -628,6 +631,53 @@ section("editor: a typo in the wording is reported, not silently empty");
   checkEqual("the rule fires", preview.fired, true);
   checkEqual("but the preview also reports the typo", preview.templateIssues.length, 1);
   checkEqual("and the trace says why it fired", preview.trace.decisive, [0]);
+}
+
+section("editor: editing by position, not by id");
+
+{
+  // The bug this pins: the rule editor's id field fires on every keystroke, and
+  // `upsertRule` matches on id — so each character appended a new rule.
+  let rule: Rule = newRule("user.my-rule");
+  let pack = upsertRule(DEFAULT_PACK, rule);
+  const at = pack.rules.length - 1;
+  const before = pack.rules.length;
+
+  for (const id of ["user.my-rul", "user.my-ru", "user.my-r", "user.my-"]) {
+    rule = { ...rule, id };
+    pack = replaceRuleAt(pack, at, rule);
+  }
+
+  checkEqual("typing in the id field does not create rules", pack.rules.length, before);
+  checkEqual("the id really changed", pack.rules[at]?.id, "user.my-");
+  check(
+    "and no half-typed id was left behind",
+    !pack.rules.some((candidate) => candidate.id === "user.my-rul"),
+  );
+
+  // The same edit through upsertRule is the bug, documented so it cannot come back.
+  let buggy = upsertRule(DEFAULT_PACK, newRule("user.x"));
+  const buggyBefore = buggy.rules.length;
+  buggy = upsertRule(buggy, { ...newRule("user.x"), id: "user.x2" });
+  checkEqual("upsertRule is append-by-id, which is why editing may not use it", buggy.rules.length, buggyBefore + 1);
+}
+
+{
+  const pack = { version: 1 as const, rules: [newRule("a"), newRule("b"), newRule("c")] };
+  checkEqual("moving a rule down keeps order", moveRuleTo(pack, 0, 2).rules.map((rule) => rule.id), ["b", "c", "a"]);
+  checkEqual("moving a rule up keeps order", moveRuleTo(pack, 2, 0).rules.map((rule) => rule.id), ["c", "a", "b"]);
+  checkEqual("moving nowhere is a no-op", moveRuleTo(pack, 1, 1).rules.map((rule) => rule.id), ["a", "b", "c"]);
+  checkEqual("an out-of-range move is a no-op", moveRuleTo(pack, 9, 0).rules.map((rule) => rule.id), ["a", "b", "c"]);
+}
+
+{
+  // A rename must not report a collision with the rule's own id.
+  const pack = { version: 1 as const, rules: [newRule("user.a"), newRule("user.b")] };
+  check("renaming to its own id is not a collision", !isIdTakenByOther(pack, "user.a", "user.a"));
+  check("renaming onto another rule is", isIdTakenByOther(pack, "user.b", "user.a"));
+  check("a free id is free", !isIdTakenByOther(pack, "user.c", "user.a"));
+  // The old helper cannot tell the difference, which is what the editor read.
+  check("isIdTaken cannot: it counts the rule itself", isIdTaken(pack, "user.a"));
 }
 
 finish();

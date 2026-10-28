@@ -239,3 +239,47 @@ export function suggestId(title: string): string {
 }
 
 export type { ValueKind };
+
+/**
+ * Replace a rule in a pack **by position**, not by id.
+ *
+ * `upsertRule` matches on `id`, which is right for a save and catastrophic for an
+ * edit: the rule editor's `id` field fires on every keystroke, so
+ * `upsertRule(pack, { ...rule, id: "user.my-rul" })` misses the existing rule and
+ * *appends a new one*. Typing four characters in the id field left five rules
+ * behind, four of them unreachable.
+ *
+ * Editing needs a stable handle that is not the field being edited, so an editor
+ * keyed by position uses this instead. The id stays a value; the position is the
+ * identity.
+ */
+export function replaceRuleAt(pack: RulePack, index: number, rule: Rule): RulePack {
+  if (index < 0 || index >= pack.rules.length) return upsertRule(pack, rule);
+  const rules = [...pack.rules];
+  rules[index] = rule;
+  return { ...pack, rules };
+}
+
+/**
+ * Move a rule to a new index, keeping array order — the grip on the card.
+ * Order is evaluation order, so this is a behaviour change, not cosmetics.
+ */
+export function moveRuleTo(pack: RulePack, from: number, to: number): RulePack {
+  if (from === to || from < 0 || from >= pack.rules.length) return pack;
+  const rules = [...pack.rules];
+  const [moved] = rules.splice(from, 1);
+  if (!moved) return pack;
+  rules.splice(Math.max(0, Math.min(to, rules.length)), 0, moved);
+  return { ...pack, rules };
+}
+
+/**
+ * Whether renaming to `id` would collide with a *different* rule.
+ *
+ * `isIdTaken` compares against the whole pack including the rule being renamed,
+ * so it answered "taken" for the rule's own current id — which is why the editor
+ * could not tell a real collision from itself.
+ */
+export function isIdTakenByOther(pack: RulePack, id: string, selfId: string): boolean {
+  return pack.rules.some((rule) => rule.id === id && rule.id !== selfId);
+}

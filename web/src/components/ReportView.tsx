@@ -24,7 +24,7 @@ import { DEFAULT_PACK } from "../../../src/regimen/defaults.ts";
 import { EXAMPLE_PACK } from "../../../src/regimen/examples.ts";
 import type { RulePack } from "../../../src/regimen/rule.ts";
 import type { PackSummary } from "../../../src/store/packStore.ts";
-import { observeRun, report } from "../../../src/index.ts";
+import { observeRun, report, phaseOf } from "../../../src/index.ts";
 import { frameAt, pickRunView, zhRunStatus, type RunView } from "../lib/runs.ts";
 import { ZH_REPORT } from "../lib/reports.ts";
 import { eventSummary } from "../lib/events.ts";
@@ -355,7 +355,12 @@ export function ReportView({
                 {pack.rules.map((rule) => {
                   const finding = playback.observation.findings.find((candidate) => candidate.ruleId === rule.id);
                   const off = rule.enabled === false || rule.emit.level === "none";
-                  const phase = rule.phase ?? "both";
+                  // Read the phase off the CONDITIONS, the way the engine does.
+                  // This used to read `rule.phase`, a field the default pack does
+                  // not set, so every rule looked `both` and a settled rule said
+                  // 「未触发」 while the tape was still running — the opposite of
+                  // the one thing this column exists to say.
+                  const phase = phaseOf(rule);
                   const pending = !playback.frame.atEnd && phase === "settled";
                   const notJudged = playback.frame.atEnd && phase === "live";
                   const status = off

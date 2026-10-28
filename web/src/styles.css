@@ -75,17 +75,28 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .sessions-col .run-name { white-space: normal; line-height: 1.35; }
 .sessions-col .run-meta { white-space: normal; }
 
-/* `[pick] [✕]` — the ✕ is a column, not an overlay. */
-.session-card { display: flex; align-items: stretch; gap: 2px; min-width: 0; }
+/* `[pick] [✕]` — the ✕ is a column *inside the card's frame*.
+ *
+ * The frame (border, radius, background) belongs to the wrapper, not to the pick
+ * button: a delete button that is the pick button's sibling would otherwise sit
+ * outside the bordered box it appears to belong to. This is the same mistake the
+ * overlay version made in the other direction — there the ✕ was on top of the
+ * card, here it was beside it.
+ */
+.session-card {
+  display: flex; align-items: stretch; gap: 0; min-width: 0;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel2); padding: 0 4px 0 0;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.session-card:hover { border-color: var(--line2); background: var(--panel3); }
+.session-card.sel { border-color: var(--green-dim); background: rgba(61, 255, 158, 0.07); box-shadow: inset 2px 0 0 var(--green); }
 .session-card .session-pick {
   display: flex; flex-direction: column; gap: 2px; text-align: left;
   flex: 1; min-width: 0;
-  border: 1px solid var(--line); border-radius: 6px;
-  background: var(--panel2); padding: 7px 9px; cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  border: none; border-radius: 6px 0 0 6px; background: transparent;
+  padding: 7px 9px; cursor: pointer;
 }
-.session-card .session-pick:hover { border-color: var(--line2); background: var(--panel3); }
-.session-card.sel .session-pick { border-color: var(--green-dim); background: rgba(61, 255, 158, 0.07); box-shadow: inset 2px 0 0 var(--green); }
 /* The card's action button — the grip's twin, in its own column.
  *
  * The grip is a bare glyph in an 18px-wide column at the *start* of a card. This
@@ -323,8 +334,6 @@ textarea.field { resize: vertical; min-height: 46px; line-height: 1.5; }
 
 /* ── runs ──────────────────────────────────────────────────────────────── */
 
-.run-card:hover .run-pick { border-color: var(--line2); background: var(--panel3); }
-.run-card.sel .run-pick { border-color: var(--green-dim); background: rgba(61, 255, 158, 0.07); box-shadow: inset 2px 0 0 var(--green); }
 .run-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .run-name { font-size: 12.5px; color: var(--ink); font-weight: 600; white-space: nowrap; }
 .run-meta { font-family: var(--mono); font-size: 10.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -922,23 +931,28 @@ textarea.field { resize: vertical; min-height: 46px; line-height: 1.5; }
    an overlay would land on the row's own text at this height. */
 .card-del.inline { flex: 0 0 16px; width: 16px; height: auto; }
 
-/* `[pick] [✕]` — the same two-column shape as a session card. */
+/* `[pick] [✕]` — the same frame-owns-the-border shape as a session card.
+ *
+ * `run-card` is also the whole card for 「全部事件」 (a plain button with no ✕),
+ * so the frame and the padding have to work in both shapes: a button that is
+ * itself the card, and a wrapper holding a pick button plus a delete button.
+ */
 .run-card {
-  display: flex; align-items: stretch; gap: 2px;
-  /* The pick button carries the card's own border and padding; the wrapper adds
-     a little breathing room so the ✕ sits inside the card's edge, not on it —
-     the same 10px an event card gives its own button. */
-  padding: 0 8px 0 0; border: none; background: transparent;
+  display: flex; align-items: stretch; gap: 0;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel2); padding: 0 4px 0 0;
+  text-align: left; cursor: pointer; min-width: 0;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
+.run-card:hover { border-color: var(--line2); background: var(--panel3); }
+.run-card.sel { border-color: var(--green-dim); background: rgba(61, 255, 158, 0.07); box-shadow: inset 2px 0 0 var(--green); }
 .run-card .run-pick {
   display: flex; flex-direction: column; gap: 2px; text-align: left;
   flex: 1; min-width: 0;
-  border: 1px solid var(--line); border-radius: 6px;
-  background: var(--panel2); padding: 7px 9px; cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  border: none; border-radius: 6px 0 0 6px; background: transparent;
+  padding: 7px 9px; cursor: pointer;
 }
-.run-card .run-pick:hover { border-color: var(--line2); background: var(--panel3); }
-.run-card.sel .run-pick {
-  border-color: var(--green-dim); background: rgba(61, 255, 158, 0.07);
-  box-shadow: inset 2px 0 0 var(--green);
-}
+
+/* 「全部事件」 is a card with no ✕: it is a button that *is* the frame, so it has
+   to stack its own two lines the way `.run-pick` does. */
+.run-card.whole { flex-direction: column; gap: 2px; padding: 7px 9px; }

@@ -52,7 +52,7 @@ export function RunList({
       <div className="pane-body stack" style={{ gap: 4 }}>
         {all ? (
           <button
-            className={`run-card${all.selected ? " sel" : ""}`}
+            className={`run-card whole${all.selected ? " sel" : ""}`}
             onClick={all.onSelect}
             title="不按轮次过滤，直接看整段事件流"
           >

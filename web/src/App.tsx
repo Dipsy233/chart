@@ -30,10 +30,10 @@ import {
   type Rule,
   type RulePack,
 } from "../../src/index.ts";
-import { adaptivePackIO, backendKind, downloadPack, type Backend } from "./lib/storage.ts";
+import { adaptivePackIO, backendKind, downloadPack, loadUserSessions, saveUserSessions, type StoredSession, type Backend } from "./lib/storage.ts";
 import type { MetricsFrameLike } from "../../src/core/live.ts";
 import { DEMOS } from "./lib/demo.ts";
-import { renumber } from "./lib/events.ts";
+import { newEvent, renumber } from "./lib/events.ts";
 import { pickRunView, runViews } from "./lib/runs.ts";
 import { RULE_TEMPLATES } from "./lib/plain.ts";
 import { EXAMPLE_PACK_NAME, PackColumn } from "./components/PackColumn.tsx";
@@ -80,6 +80,9 @@ export function App() {
   const [selectedRuleId, setSelectedRuleId] = useState<string | undefined>(undefined);
 
   const [demoId, setDemoId] = useState(DEMOS[0]!.id);
+  const [userSessions, setUserSessions] = useState<StoredSession[]>(() => loadUserSessions());
+  const [sessionPromptOpen, setSessionPromptOpen] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState<string | undefined>(undefined);
   const [events, setEvents] = useState<ChartEvent[]>(() => renumber(DEMOS[0]!.build()));
   const [metrics, setMetrics] = useState<MetricsFrameLike[]>(() => DEMOS[0]!.metrics?.() ?? []);
   const [runId, setRunId] = useState<string | undefined>(undefined);
@@ -287,24 +290,90 @@ export function App() {
   /* ── sessions ───────────────────────────────────────────── */
 
   const switchDemo = (id: string) => {
-    const demo = DEMOS.find((candidate) => candidate.id === id);
-    if (!demo) return;
-    setDemoId(demo.id);
-    setEvents(renumber(demo.build()));
-    setMetrics(demo.metrics?.() ?? []);
+    setDemoId(id);
     setRunId(undefined);
     setSelectedEventIndex(undefined);
     setAllEventsMode(false);
+    if (id.startsWith("user:")) {
+      const session = userSessions.find((candidate) => candidate.id === id);
+      setEvents(renumber(session?.events ?? []));
+      setMetrics([]);
+      return;
+    }
+    const demo = DEMOS.find((candidate) => candidate.id === id);
+    if (!demo) return;
+    setEvents(renumber(demo.build()));
+    setMetrics(demo.metrics?.() ?? []);
+  };
+
+  /** Persist an edit back into the simulated session it belongs to. */
+  const handleEventsChange = (next: ChartEvent[]) => {
+    setEvents(next);
+    if (demoId.startsWith("user:")) {
+      const sessions = userSessions.map((session) =>
+        session.id === demoId ? { ...session, events: next } : session,
+      );
+      setUserSessions(sessions);
+      saveUserSessions(sessions);
+    }
+  };
+
+  /** The header ＋ on the runs column: a new run grows from a user message. */
+  const addRun = () => {
+    const last = events[events.length - 1]?.timestamp ?? Date.now() - 1000;
+    const opener = newEvent("message", last + 1000, "simulated");
+    opener.payload = { role: "user", content: "新的轮次" };
+    handleEventsChange(renumber([...events, opener]));
+    setRunId(undefined);
+    setSelectedEventIndex(undefined);
+  };
+
+  /**
+   * The header ＋ on the sessions column: an empty named stream. State is set
+   * directly rather than through switchDemo, whose closure still sees the
+   * session list from before this one was added.
+   */
+  const createSession = (name: string) => {
+    const id = `user:s-${Date.now()}`;
+    const sessions = [...userSessions, { id, name, events: [] as ChartEvent[] }];
+    setUserSessions(sessions);
+    saveUserSessions(sessions);
+    setSessionPromptOpen(false);
+    setDemoId(id);
+    setRunId(undefined);
+    setSelectedEventIndex(undefined);
+    setAllEventsMode(false);
+    setEvents([]);
+    setMetrics([]);
+    notify(`已新建模拟会话「${name}」——去事件流里加第一轮`);
+  };
+
+  const deleteSession = (id: string) => {
+    const gone = userSessions.find((session) => session.id === id);
+    const sessions = userSessions.filter((session) => session.id !== id);
+    setUserSessions(sessions);
+    saveUserSessions(sessions);
+    setSessionToDelete(undefined);
+    if (demoId === id) void switchDemo(DEMOS[0]!.id);
+    if (gone) notify(`已删除模拟会话「${gone.name}」`);
   };
 
   const selectedRule = pack.rules.find((rule) => rule.id === selectedRuleId) ?? pack.rules[0];
 
-  /** The 事件会话 column's rows: every session the editor can observe. */
-  const subjects: Subject[] = DEMOS.map((demo) => ({
-    id: demo.id,
-    label: demo.label,
-    hint: demo.description,
-  }));
+  /** The 事件会话 column's rows: the user's simulated sessions, then the demos. */
+  const subjects: Subject[] = [
+    ...userSessions.map((session) => ({
+      id: session.id,
+      label: session.name,
+      hint: "模拟会话 · 保存在浏览器里，删了就没了",
+      deletable: true,
+    })),
+    ...DEMOS.map((demo) => ({
+      id: demo.id,
+      label: demo.label,
+      hint: demo.description,
+    })),
+  ];
 
   /* ── render ─────────────────────────────────────────────── */
 
@@ -344,7 +413,15 @@ export function App() {
         packs={packs}
         packName={packName}
         metrics={metrics}
-        sessions={<SessionColumn subjects={subjects} selectedId={demoId} onSelect={(id) => void switchDemo(id)} />}
+        sessions={
+          <SessionColumn
+            subjects={subjects}
+            selectedId={demoId}
+            onSelect={(id) => void switchDemo(id)}
+            onAdd={() => setSessionPromptOpen(true)}
+            onDelete={(id) => setSessionToDelete(id)}
+          />
+        }
         onSelectRun={setRunId}
         onSelectPack={(name) => void openPack(name)}
         onActivatePack={(name) => void activatePack(name)}
@@ -442,11 +519,20 @@ export function App() {
           runId={selectedView?.run.id}
           allMode={allEventsMode}
           selectedIndex={selectedEventIndex}
-          onChange={setEvents}
+          onChange={handleEventsChange}
           onSelectRun={setRunId}
           onToggleAll={() => setAllEventsMode((current) => !current)}
           onSelectIndex={setSelectedEventIndex}
-          sessions={<SessionColumn subjects={subjects} selectedId={demoId} onSelect={(id) => void switchDemo(id)} />}
+          onAddRun={addRun}
+          sessions={
+          <SessionColumn
+            subjects={subjects}
+            selectedId={demoId}
+            onSelect={(id) => void switchDemo(id)}
+            onAdd={() => setSessionPromptOpen(true)}
+            onDelete={(id) => setSessionToDelete(id)}
+          />
+        }
         />
       ) : null}
 
@@ -558,6 +644,34 @@ export function App() {
           }
           onConfirm={() => deletePack(packToDelete)}
           onClose={() => setPackToDelete(undefined)}
+        />
+      ) : null}
+
+      {sessionPromptOpen ? (
+        <PromptDialog
+          title="＋ 新建模拟会话"
+          subtitle="一个空的会话，名字随你起。去事件流里用轮次列的 ＋ 新开一轮，再一条条加事件。"
+          label="会话名字"
+          placeholder="我的实验"
+          initialValue="我的实验"
+          validate={(value) => {
+            if (!value.trim()) return "名字不能为空";
+            if (userSessions.some((session) => session.name === value.trim())) return "已经有同名的模拟会话了";
+            return undefined;
+          }}
+          confirmText="新建"
+          onConfirm={(name) => createSession(name.trim())}
+          onClose={() => setSessionPromptOpen(false)}
+        />
+      ) : null}
+
+      {sessionToDelete ? (
+        <ConfirmDialog
+          title="删除模拟会话"
+          message={`确定删除模拟会话「${userSessions.find((session) => session.id === sessionToDelete)?.name}」吗？它的整段事件流会一起删掉，不能撤销。`}
+          detail="内置演示会话不受影响。"
+          onConfirm={() => deleteSession(sessionToDelete)}
+          onClose={() => setSessionToDelete(undefined)}
         />
       ) : null}
 

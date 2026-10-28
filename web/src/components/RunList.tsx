@@ -12,6 +12,7 @@ import type { RunView } from "../lib/runs.ts";
 import { formatSpan, runDuration, runStatusTone, zhRunStatus } from "../lib/runs.ts";
 
 export function RunList({
+  onAddRun,
   views,
   events,
   selectedId,
@@ -24,6 +25,8 @@ export function RunList({
   onSelect: (id: string) => void;
   /** The events panel can also show the whole stream; the report cannot. */
   all?: { selected: boolean; count: number; onSelect: () => void };
+  /** The header ＋: open a new simulated run at the end of the stream. */
+  onAddRun?: () => void;
 }) {
   return (
     <div className="col runs-col">
@@ -31,6 +34,11 @@ export function RunList({
         <span>轮次 runs</span>
         <span className="spacer" />
         <span className="tiny">{views.length}</span>
+        {onAddRun ? (
+          <button className="btn tiny ghost" onClick={onAddRun} title="在流末尾新开一轮 —— 一条新的用户消息，新轮次从这里长出来">
+            ＋
+          </button>
+        ) : null}
       </div>
       <div className="pane-body stack" style={{ gap: 4 }}>
         {all ? (

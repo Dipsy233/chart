@@ -7,6 +7,7 @@
  * swapping this object, not rewriting the UI.
  */
 
+import type { ChartEvent } from "../../../src/core/events.ts";
 import type { PackIO } from "../../../src/store/packStore.ts";
 
 const PACKS_KEY = "chart:packs";
@@ -60,6 +61,39 @@ export function localStoragePackIO(): PackIO {
 }
 
 /** Download a pack as a file, so it can be dropped into `.chart/rules/`. */
+/* ── simulated sessions ─────────────────────────────────────────────────── */
+
+/** A session the user created in the 事件会话 column: a name and a stream. */
+export interface StoredSession {
+  id: string;
+  name: string;
+  events: ChartEvent[];
+}
+
+const SESSIONS_KEY = "regimen.user-sessions.v1";
+
+export function loadUserSessions(): StoredSession[] {
+  try {
+    const raw = localStorage.getItem(SESSIONS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as StoredSession[];
+    return Array.isArray(parsed)
+      ? parsed.filter((s) => s && typeof s.id === "string" && typeof s.name === "string" && Array.isArray(s.events))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveUserSessions(sessions: readonly StoredSession[]): void {
+  try {
+    localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+  } catch {
+    // private mode / quota — the session still works, it just will not survive
+    // a reload; silently keeping the editor usable beats an error toast.
+  }
+}
+
 export function downloadPack(name: string, text: string): void {
   const blob = new Blob([text], { type: "application/json" });
   const url = URL.createObjectURL(blob);

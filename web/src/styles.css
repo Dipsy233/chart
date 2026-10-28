@@ -75,6 +75,24 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .sessions-col .run-name { white-space: normal; line-height: 1.35; }
 .sessions-col .run-meta { white-space: normal; }
 
+.session-card { position: relative; min-width: 0; }
+.session-card .session-pick {
+  display: flex; flex-direction: column; gap: 2px; text-align: left; width: 100%;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel2); padding: 7px 9px; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.session-card .session-pick:hover { border-color: var(--line2); background: var(--panel3); }
+.session-card.sel .session-pick { border-color: var(--green-dim); background: rgba(61, 255, 158, 0.07); box-shadow: inset 2px 0 0 var(--green); }
+.session-card .card-del {
+  position: absolute; top: 4px; right: 4px;
+  border: none; background: transparent; color: var(--dim);
+  font-size: 10px; line-height: 1; padding: 2px 4px; border-radius: 4px; cursor: pointer;
+  opacity: 0; transition: opacity 0.12s, color 0.12s;
+}
+.session-card:hover .card-del { opacity: 1; }
+.session-card .card-del:hover { color: var(--high); }
+
 /* ── shell ─────────────────────────────────────────────────────────────── */
 
 .shell { display: grid; grid-template-rows: auto 1fr; height: 100%; overflow: hidden; }

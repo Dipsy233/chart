@@ -38,6 +38,7 @@ import { pickRunView, runViews } from "./lib/runs.ts";
 import { RULE_TEMPLATES } from "./lib/plain.ts";
 import { EXAMPLE_PACK_NAME, PackColumn } from "./components/PackColumn.tsx";
 import { SessionColumn, type Subject } from "./components/SessionColumn.tsx";
+import { NewSessionDialog, type SessionMode } from "./components/NewSessionDialog.tsx";
 import { ConfirmDialog, PromptDialog } from "./components/PromptDialog.tsx";
 import { JsonDialog } from "./components/JsonDialog.tsx";
 import { RuleCardList } from "./components/RuleCardList.tsx";
@@ -62,6 +63,14 @@ function freePackName(taken: readonly string[], base = "work"): string {
   return `${base}-${counter}`;
 }
 
+/** The same idea for a session name: `我的实验`, then `我的实验 2`, … */
+function freeSessionName(taken: readonly string[], base: string): string {
+  if (!taken.includes(base)) return base;
+  let counter = 2;
+  while (taken.includes(`${base} ${counter}`)) counter += 1;
+  return `${base} ${counter}`;
+}
+
 /** The same rules the store enforces, said in Chinese for the dialog. */
 function packNameProblem(name: string, taken: readonly string[], allowExisting: boolean): string | undefined {
   if (name === "") return "名字不能为空";
@@ -81,7 +90,7 @@ export function App() {
 
   const [demoId, setDemoId] = useState(DEMOS[0]!.id);
   const [userSessions, setUserSessions] = useState<StoredSession[]>(() => loadUserSessions());
-  const [sessionPromptOpen, setSessionPromptOpen] = useState(false);
+  const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<string | undefined>(undefined);
   const [events, setEvents] = useState<ChartEvent[]>(() => renumber(DEMOS[0]!.build()));
   const [metrics, setMetrics] = useState<MetricsFrameLike[]>(() => DEMOS[0]!.metrics?.() ?? []);
@@ -297,7 +306,7 @@ export function App() {
     if (id.startsWith("user:")) {
       const session = userSessions.find((candidate) => candidate.id === id);
       setEvents(renumber(session?.events ?? []));
-      setMetrics([]);
+      setMetrics(session?.metrics ?? []);
       return;
     }
     const demo = DEMOS.find((candidate) => candidate.id === id);
@@ -329,23 +338,43 @@ export function App() {
   };
 
   /**
-   * The header ＋ on the sessions column: an empty named stream. State is set
-   * directly rather than through switchDemo, whose closure still sees the
-   * session list from before this one was added.
+   * The header ＋ on the sessions column opens a dialog with two ways to add a
+   * session. Both set state directly rather than through `switchDemo`, whose
+   * closure still sees the session list from before this one was added.
+   *
+   * `snapshot` is the interesting one: the current session's events (and its
+   * resource samples) are **deep-copied once**, at the click. From then on the
+   * copy and the source are two independent sessions — no live link, no sync.
    */
-  const createSession = (name: string) => {
+  const createSession = (name: string, mode: SessionMode) => {
     const id = `user:s-${Date.now()}`;
-    const sessions = [...userSessions, { id, name, events: [] as ChartEvent[] }];
+    // The snapshot is taken here and nowhere else: this is the "one click" the
+    // option promises. Nothing downstream re-reads the source session.
+    const copiedEvents = mode === "snapshot" ? structuredClone(events) : ([] as ChartEvent[]);
+    const copiedMetrics = mode === "snapshot" ? structuredClone(metrics) : ([] as MetricsFrameLike[]);
+    const session: StoredSession = {
+      id,
+      name,
+      events: copiedEvents,
+      ...(mode === "snapshot"
+        ? { metrics: copiedMetrics, snapshotOf: { id: demoId, label: currentSubjectLabel } }
+        : {}),
+    };
+    const sessions = [...userSessions, session];
     setUserSessions(sessions);
     saveUserSessions(sessions);
-    setSessionPromptOpen(false);
+    setNewSessionOpen(false);
     setDemoId(id);
     setRunId(undefined);
     setSelectedEventIndex(undefined);
     setAllEventsMode(false);
-    setEvents([]);
-    setMetrics([]);
-    notify(`已新建模拟会话「${name}」——去事件流里加第一轮`);
+    setEvents(copiedEvents);
+    setMetrics(copiedMetrics);
+    notify(
+      mode === "snapshot"
+        ? `已快照「${name}」：${copiedEvents.length} 个事件，之后不再同步`
+        : `已新建模拟会话「${name}」——去事件流里加第一轮`,
+    );
   };
 
   const deleteSession = (id: string) => {
@@ -360,12 +389,20 @@ export function App() {
 
   const selectedRule = pack.rules.find((rule) => rule.id === selectedRuleId) ?? pack.rules[0];
 
+  /** The label of the session currently on screen, for the snapshot option. */
+  const currentSubjectLabel =
+    userSessions.find((session) => session.id === demoId)?.name ??
+    DEMOS.find((demo) => demo.id === demoId)?.label ??
+    "当前会话";
+
   /** The 事件会话 column's rows: the user's simulated sessions, then the demos. */
   const subjects: Subject[] = [
     ...userSessions.map((session) => ({
       id: session.id,
       label: session.name,
-      hint: "模拟会话 · 保存在浏览器里，删了就没了",
+      hint: session.snapshotOf
+        ? `快照 · 复制自「${session.snapshotOf.label}」，之后不再同步`
+        : "模拟会话 · 保存在浏览器里，删了就没了",
       deletable: true,
     })),
     ...DEMOS.map((demo) => ({
@@ -375,7 +412,18 @@ export function App() {
     })),
   ];
 
-  /* ── render ─────────────────────────────────────────────── */
+  const sessionNames = [...userSessions.map((session) => session.name), ...DEMOS.map((demo) => demo.label)];
+
+  /** One 事件会话 column, shared by the report and event views. */
+  const sessionColumn = (
+    <SessionColumn
+      subjects={subjects}
+      selectedId={demoId}
+      onSelect={(id) => void switchDemo(id)}
+      onAdd={() => setNewSessionOpen(true)}
+      onDelete={(id) => setSessionToDelete(id)}
+    />
+  );
 
   return (
     <div className="shell">
@@ -413,15 +461,7 @@ export function App() {
         packs={packs}
         packName={packName}
         metrics={metrics}
-        sessions={
-          <SessionColumn
-            subjects={subjects}
-            selectedId={demoId}
-            onSelect={(id) => void switchDemo(id)}
-            onAdd={() => setSessionPromptOpen(true)}
-            onDelete={(id) => setSessionToDelete(id)}
-          />
-        }
+        sessions={sessionColumn}
         onSelectRun={setRunId}
         onSelectPack={(name) => void openPack(name)}
         onActivatePack={(name) => void activatePack(name)}
@@ -524,15 +564,7 @@ export function App() {
           onToggleAll={() => setAllEventsMode((current) => !current)}
           onSelectIndex={setSelectedEventIndex}
           onAddRun={addRun}
-          sessions={
-          <SessionColumn
-            subjects={subjects}
-            selectedId={demoId}
-            onSelect={(id) => void switchDemo(id)}
-            onAdd={() => setSessionPromptOpen(true)}
-            onDelete={(id) => setSessionToDelete(id)}
-          />
-        }
+          sessions={sessionColumn}
         />
       ) : null}
 
@@ -647,21 +679,17 @@ export function App() {
         />
       ) : null}
 
-      {sessionPromptOpen ? (
-        <PromptDialog
-          title="＋ 新建模拟会话"
-          subtitle="一个空的会话，名字随你起。去事件流里用轮次列的 ＋ 新开一轮，再一条条加事件。"
-          label="会话名字"
-          placeholder="我的实验"
-          initialValue="我的实验"
-          validate={(value) => {
-            if (!value.trim()) return "名字不能为空";
-            if (userSessions.some((session) => session.name === value.trim())) return "已经有同名的模拟会话了";
-            return undefined;
+      {newSessionOpen ? (
+        <NewSessionDialog
+          sourceLabel={currentSubjectLabel}
+          sourceCount={events.length}
+          taken={sessionNames}
+          defaults={{
+            empty: freeSessionName(sessionNames, "我的实验"),
+            snapshot: freeSessionName(sessionNames, `${currentSubjectLabel} · 快照`),
           }}
-          confirmText="新建"
-          onConfirm={(name) => createSession(name.trim())}
-          onClose={() => setSessionPromptOpen(false)}
+          onCreate={createSession}
+          onClose={() => setNewSessionOpen(false)}
         />
       ) : null}
 

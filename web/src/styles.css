@@ -702,6 +702,10 @@ textarea.field { resize: vertical; min-height: 46px; line-height: 1.5; }
   margin-bottom: 8px;
 }
 .template:hover { border-color: var(--green-dim); background: rgba(61, 255, 158, 0.06); }
+.template.on { border-color: var(--green-dim); background: rgba(61, 255, 158, 0.09); box-shadow: inset 2px 0 0 var(--green); }
+.template.on .name { color: var(--green-hi); }
+.template.off { opacity: 0.45; cursor: not-allowed; }
+.template.off:hover { border-color: var(--line); background: var(--panel); }
 .template .ico { font-family: var(--mono); color: var(--green); font-size: 16px; width: 24px; text-align: center; text-shadow: var(--glow); }
 .template .name { font-size: 13.5px; color: var(--ink); font-weight: 600; }
 .template .desc { font-size: 12px; color: var(--dim); margin-top: 1px; }

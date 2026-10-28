@@ -142,8 +142,8 @@ A report, in full:
 Both are data. Nothing is executed: no `eval`, no plugin loading, no network.
 
 `web/` is a React editor + simulator with three views, switched from the top
-bar. The bar does two things only — switch views, and pick the **监护对象** (the
-session being observed).
+bar. What is being observed — the **监护对象** — is the 事件会话 column of the
+report and event views, where every session is visible at once.
 
 - **监护报告** — four columns: the runs in the session, the events of the
   selected run, the report, and the pack that judges it. The report is a
@@ -169,6 +169,12 @@ session being observed).
   it: type, time, the payload fields that matter for that type, and the raw JSON.
   Cards reorder with the same grip; adding an event inserts before a trailing
   `agent_end`.
+- **事件会话** — the leftmost column of the report and event views. Its **＋**
+  opens a dialog with two ways to add a session: an **empty** one you build event
+  by event, or a **snapshot of the current session**. A snapshot is a photo, not
+  a mirror: it deep-copies the events and the resource samples at the instant you
+  press 快照, and the copy and the source are independent from then on — editing
+  one never writes into the other. The card says what it was copied from.
 
 Judgement lives in the report and nowhere else: the editor and the event stream
 edit data, and only the report panel runs the pack. The editor also brings its

@@ -8,6 +8,7 @@
  */
 
 import type { ChartEvent } from "../../../src/core/events.ts";
+import type { MetricsFrameLike } from "../../../src/core/live.ts";
 import type { PackIO } from "../../../src/store/packStore.ts";
 
 const PACKS_KEY = "chart:packs";
@@ -63,11 +64,24 @@ export function localStoragePackIO(): PackIO {
 /** Download a pack as a file, so it can be dropped into `.chart/rules/`. */
 /* ── simulated sessions ─────────────────────────────────────────────────── */
 
-/** A session the user created in the 事件会话 column: a name and a stream. */
+/**
+ * A session the user created in the 事件会话 column: a name and a stream.
+ *
+ * A session is either built by hand (empty at first, then edited event by
+ * event) or a **snapshot**: a one-time copy of another session, taken when the
+ * ＋ dialog's 快照 button was pressed. The copy is deep, so the two sessions
+ * share nothing afterwards — editing one never writes into the other. That is
+ * why the events and the resource samples are stored here rather than read
+ * through from their source.
+ */
 export interface StoredSession {
   id: string;
   name: string;
   events: ChartEvent[];
+  /** Resource samples, frozen with the events when the session is a snapshot. */
+  metrics?: MetricsFrameLike[];
+  /** Set on a snapshot: which session (and which of its names) it copied. */
+  snapshotOf?: { id: string; label: string };
 }
 
 const SESSIONS_KEY = "regimen.user-sessions.v1";
@@ -78,7 +92,12 @@ export function loadUserSessions(): StoredSession[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as StoredSession[];
     return Array.isArray(parsed)
-      ? parsed.filter((s) => s && typeof s.id === "string" && typeof s.name === "string" && Array.isArray(s.events))
+      ? parsed
+          .filter((s) => s && typeof s.id === "string" && typeof s.name === "string" && Array.isArray(s.events))
+          .map((s) => ({
+            ...s,
+            ...(Array.isArray(s.metrics) ? { metrics: s.metrics } : {}),
+          }))
       : [];
   } catch {
     return [];

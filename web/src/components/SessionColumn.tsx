@@ -6,10 +6,11 @@
  * while a view is open belongs in the view; and a column can show every session
  * at once, with its description, instead of one chosen line.
  *
- * The column also *creates*: the ＋ in its header adds a simulated session of
- * the user's own (an empty stream, named here) next to the shipped demos.
- * Simulated sessions persist in localStorage and are deletable — the demos and
- * any real sessions the host passes in are not.
+ * The column also *creates*: the ＋ in its header opens a dialog with two ways
+to add a session — a blank stream of the user's own, or a one-time **snapshot**
+of the session currently on screen (the ＋ dialog owns that choice, so the column
+stays a list with one button). Simulated sessions persist in localStorage and are
+deletable — the demos and any real sessions the host passes in are not.
  */
 
 export interface Subject {
@@ -43,7 +44,7 @@ export function SessionColumn({
         <span className="spacer" />
         <span className="tiny">{subjects.length}</span>
         {onAdd ? (
-          <button className="btn tiny ghost" onClick={onAdd} title="新建一个空的模拟会话，在事件流里从零开始编辑">
+          <button className="btn tiny ghost" onClick={onAdd} title="新建会话：空白，或当前会话此刻的快照">
             ＋
           </button>
         ) : null}

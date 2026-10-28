@@ -24,8 +24,9 @@ report. The report is a playback, so looking is cheap.
 
 ## Three views, one state
 
-The top bar switches views and picks the **监护对象** (the session being
-observed). Nothing else lives there: no phase, no anchor, no demo captions.
+The top bar switches views. What is being observed — the **监护对象** — is the
+事件会话 column of the report and event views, where every session is visible at
+once.
 
 Everything else — the session's events, the selected pack, the selected run — is
 shared, so the rule you edit is the rule the report judges with.
@@ -147,6 +148,35 @@ payload fields the catalogue says matter, and the raw JSON one disclosure away.
 **全部事件** shows the whole stream instead of one round, for edits that cross a
 run boundary. Adding an event inserts after the selected card, and before a
 trailing `agent_end` (anything after it belongs to no run).
+
+### 事件会话 — the leftmost column, and its ＋
+
+```
+┌ 事件会话 sessions ────────────────────────┐
+│ ● 研究任务 · 两个交付物                   │
+│   一次调研：…（内置演示）                 │
+│ ● 我的实验 · 快照                    ✕   │
+│   快照 · 复制自「研究任务…」              │
+│ ＋                                        │
+└──────────────────────────────────────────┘
+```
+
+The column lists the sessions you made, then the demos. Its **＋** opens a dialog
+with two ways to add one:
+
+- **空会话** — a blank stream, built event by event in 事件流.
+- **当前会话的快照** — a copy of the session on screen *as it is at that
+  moment*. This is a **snapshot, not a link**: the events and the resource
+  samples are deep-copied once, when you press 快照, and from then on the copy
+  and the source are two independent sessions. Editing one never writes into the
+  other, and nothing is synced afterwards. The option is disabled (and says so)
+  when the current session has no events.
+
+The dialog also owns the name, with the editor's usual rules — non-empty, not
+already taken — and a free default per mode (`我的实验`, `研究任务… · 快照`). A
+snapshot's card says what it was copied from, so a column of experiments stays
+readable. Sessions live in `localStorage` and the ✕ on a card deletes one (with
+the in-page confirm dialog); the demos are not deletable.
 
 The pack column lists the built-in defaults, a read-only **示例规则** pack
 (`EXAMPLE_PACK` — eleven rules that each demonstrate one capability of the

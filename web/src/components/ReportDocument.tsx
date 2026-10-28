@@ -57,12 +57,26 @@ function zhCell(cell: string): string {
 export function ReportDocument({ report }: { report: RenderedReport }) {
   const header = report.sections.find((section) => section.kind === "header");
   const rest = report.sections.filter((section) => section.kind !== "header");
+  const judgedBy = report.judgedBy;
 
   return (
     <div className="report">
       <div className="report-head">
         <h1>{header?.kind === "header" ? header.title : report.title}</h1>
         {header?.kind === "header" && header.subtitle ? <div className="sub">{header.subtitle}</div> : null}
+        {/*
+          * Who judged this. The engine has carried `packHash` on every record
+          * since the hash chain landed, and no UI ever showed it — so a report
+          * of last week was indistinguishable from today's rules re-applied to
+          * it. A report that cannot name its judge is an assertion.
+          */}
+        {judgedBy ? (
+          <div className="judged-by" title="判读这一轮时使用的规则包">
+            {judgedBy.replayed ? "按当时记录的判读渲染" : "按当前规则包判读"}
+            {judgedBy.packName ? ` · ${judgedBy.packName}` : ""}
+            {judgedBy.packHash ? ` · ${judgedBy.packHash}` : ""}
+          </div>
+        ) : null}
       </div>
       {rest.map((section, index) => (
         <Section key={index} section={section} />

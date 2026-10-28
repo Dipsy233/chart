@@ -974,12 +974,26 @@ export function App() {
         <EventStreamEditor
           events={events}
           views={views}
-          runId={selectedView?.run.id}
+          // The *raw* selection, not `selectedView?.run.id`: that resolves an
+          // empty `runId` to the newest round, which would keep a round card lit
+          // while 「全部事件」 is the scope actually being shown.
+          runId={runId}
           allMode={allEventsMode}
           selectedIndex={selectedEventIndex}
           onChange={handleEventsChange}
-          onSelectRun={setRunId}
-          onToggleAll={() => setAllEventsMode((current) => !current)}
+          onSelectRun={(id) => {
+            // Picking a round and 「全部事件」 are the same choice made two ways:
+            // they are mutually exclusive, or both cards would light up and the
+            // list would claim to be showing two scopes at once.
+            setAllEventsMode(false);
+            setRunId(id);
+          }}
+          onToggleAll={() => {
+            // Turning it on clears the round selection; turning it off falls back
+            // to the newest round, which is what an empty `runId` means.
+            if (!allEventsMode) setRunId(undefined);
+            setAllEventsMode(!allEventsMode);
+          }}
           onSelectIndex={setSelectedEventIndex}
           onAddRun={addRun}
           onDeleteRun={setRunToDelete}

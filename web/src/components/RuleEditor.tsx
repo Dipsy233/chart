@@ -125,11 +125,7 @@ export function RuleEditor({
         <div className="pane-body rule-editor">
           {readOnly ? (
           <div className="notice">
-            <span>
-              {pack.name === "Examples"
-                ? "这是只读的示例规则包：每一条都在演示规则语言的一种能力。改动不会保存，想改先复制成自己的规则包。"
-                : "这是内置默认规则包，改动不会保存。要留住修改，先复制成自己的规则包。"}
-            </span>
+            <span>这是内置默认规则包，改动不会保存。要留住修改，先复制成自己的规则包。</span>
             <span className="spacer" />
             {onFork ? (
               <button className="btn tiny primary" onClick={onFork}>

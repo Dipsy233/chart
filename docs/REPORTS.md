@@ -137,13 +137,20 @@ A string element is `{{vars.row}}`; an object is `{{vars.row.command}}`.
 - `SETTLED_REPORT` — header, verdict, findings, stats, commands, files,
   processes, knowledge, world line, evidence. For a run at rest.
 - `CLASSIC_REPORT` — Absence's original report layout, section for section, as
-  data. It exists to prove a claim: **every section of the shipped report is
-  expressible as a spec**, so forking it is editing JSON rather than forking a
-  module. Its four file lists (modified / created / observed / deleted) are one
-  `facts.files.byPath` source with four different `filter`s.
+  data. It is the **default**, and it exists to prove a claim: **every section of
+  the shipped report is expressible as a spec**, so forking it is editing JSON
+  rather than forking a module. Its four file lists (modified / created /
+  observed / deleted) are one `facts.files.byPath` source with four different
+  `filter`s.
 
 All three are ordinary specs. There is no built-in layout that a custom one
 cannot reach.
+
+**They are English, and that is deliberate.** A spec is data — read by a CLI, a
+diff, a person opening the JSON, and whoever you send it to. Prose for the user
+belongs to the *host*: the editor's `ReportDocument` translates section titles
+and the outcome headline. Two shipped specs differing only in the language of
+their titles would be one spec and a copy.
 
 ## Guidance
 

@@ -21,12 +21,11 @@ import type { ChartEvent } from "../../../src/core/events.ts";
 import { metricsAt } from "../../../src/core/live.ts";
 import type { MetricsFrameLike } from "../../../src/core/live.ts";
 import { DEFAULT_PACK } from "../../../src/regimen/defaults.ts";
-import { EXAMPLE_PACK } from "../../../src/regimen/examples.ts";
 import type { RulePack } from "../../../src/regimen/rule.ts";
 import type { PackSummary } from "../../../src/store/packStore.ts";
 import { observeRun, report, phaseOf } from "../../../src/index.ts";
 import { frameAt, pickRunView, zhRunStatus, type RunView } from "../lib/runs.ts";
-import { ZH_REPORT } from "../lib/reports.ts";
+import { CLASSIC_REPORT } from "../../../src/report/classic.ts";
 import type { ReportSpec } from "../../../src/report/spec.ts";
 import { eventSummary } from "../lib/events.ts";
 import { zhEventLabel, zhLevel } from "../lib/plain.ts";
@@ -65,7 +64,7 @@ export function ReportView({
   pack: RulePack;
   packs: PackSummary[];
   packName: string | undefined;
-  /** The report spec to render. Defaults to the editor's own Chinese spec. */
+  /** The report spec to render. Defaults to the shipped one. */
   spec?: ReportSpec;
   /** The session's resource samples, if the host has a sampler. */
   metrics?: readonly MetricsFrameLike[];
@@ -117,7 +116,7 @@ export function ReportView({
       // resources of that moment — not the newest sample of the session.
       live: { nowMs: frame.anchor, metrics: metrics ? metricsAt(metrics, frame.anchor) : undefined },
     });
-    const rendered = report(observation, spec ?? ZH_REPORT, { nowMs: frame.anchor });
+    const rendered = report(observation, spec ?? CLASSIC_REPORT, { nowMs: frame.anchor });
     return { frame, observation, rendered };
   }, [events, view, cursor, pack, metrics, spec]);
 
@@ -281,7 +280,6 @@ export function ReportView({
             onChange={(event) => onSelectPack(event.target.value || undefined)}
           >
             <option value="">内置默认 · {DEFAULT_PACK.rules.length} 条</option>
-            <option value="@examples">示例规则 · {EXAMPLE_PACK.rules.length} 条 · 只读</option>
             {packs.map((summary) => (
               <option key={summary.name} value={summary.name}>
                 {summary.name} · {summary.rules} 条{summary.active ? " · 生效中" : ""}
@@ -301,7 +299,7 @@ export function ReportView({
             </button>
             <span className="spacer" />
             <span className="tiny muted">
-              {packName === undefined || packName === "@examples" ? "只读" : "已保存"}
+              {packName === undefined ? "只读" : "已保存"}
             </span>
           </div>
 

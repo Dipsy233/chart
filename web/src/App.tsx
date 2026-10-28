@@ -16,7 +16,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_PACK,
-  EXAMPLE_PACK,
   PACK_NAME_RE,
   PackStore,
   isIdTaken,
@@ -46,14 +45,13 @@ import {
   type ReportSummary,
 } from "./lib/storage.ts";
 import type { ReportSpec } from "../../src/report/spec.ts";
-import { ZH_REPORT } from "./lib/reports.ts";
 import { CLASSIC_REPORT } from "../../src/report/classic.ts";
 import type { MetricsFrameLike } from "../../src/core/live.ts";
 import { DEMOS } from "./lib/demo.ts";
 import { newEvent, renumber } from "./lib/events.ts";
 import { pickRunView, runViews } from "./lib/runs.ts";
 import { RULE_TEMPLATES } from "./lib/plain.ts";
-import { EXAMPLE_PACK_NAME, PackColumn } from "./components/PackColumn.tsx";
+import { PackColumn } from "./components/PackColumn.tsx";
 import { SessionColumn, type Subject } from "./components/SessionColumn.tsx";
 import { NewSessionDialog, type AbsenceImport, type SessionMode } from "./components/NewSessionDialog.tsx";
 import { ConfirmDialog, PromptDialog } from "./components/PromptDialog.tsx";
@@ -94,7 +92,7 @@ function packNameProblem(name: string, taken: readonly string[], allowExisting: 
   if (name === "") return "名字不能为空";
   if (!PACK_NAME_RE.test(name)) return "只能用字母、数字、. - _，最多 64 个字符";
   if (name === "active") return "「active」是保留名，换一个";
-  if (name === EXAMPLE_PACK_NAME) return `「${EXAMPLE_PACK_NAME}」是只读示例包的名字，换一个`;
+
   if (!allowExisting && taken.includes(name)) return `已经有名为「${name}」的规则包了`;
   return undefined;
 }
@@ -164,24 +162,33 @@ function ReportRow({
 /**
  * The report names that are not files.
  *
- * `@default` is the editor's own spec and `@classic` is Absence's old layout
- * written as data; both are read-only, and both are addressable by name so that
- * *activating* one is a normal choice rather than "clear the pointer".
+ * There is exactly one: `@classic`, Absence's original layout written as a spec.
+ * It is read-only, and it is the **default** — a fresh install has no report of
+ * its own, so the shipped document is the one in force. It is addressable by
+ * name so that *activating* it is a normal choice rather than "clear the
+ * pointer".
+ *
+ * (`@default` used to be a second built-in, the editor's own Chinese spec. Two
+ * built-ins whose only difference was the language of their section titles made
+ * the list read like a bug, so it is gone: the renderer translates.)
  */
 const BUILT_IN_REPORTS: Record<string, ReportSpec> = {
-  "@default": ZH_REPORT,
   "@classic": CLASSIC_REPORT,
 };
 
+/** The spec a fresh install uses. */
+const DEFAULT_REPORT = CLASSIC_REPORT;
+const DEFAULT_REPORT_NAME = "@classic";
+
 /** A name → the spec it refers to, built-in or stored. The one lookup. */
 function resolveSpec(name: string | undefined): ReportSpec | undefined {
-  if (name === undefined) return ZH_REPORT;
+  if (name === undefined) return DEFAULT_REPORT;
   return BUILT_IN_REPORTS[name] ?? readReport(name);
 }
 
 /** Whether a name is a built-in (read-only) report. */
 function isBuiltInReport(name: string | undefined): boolean {
-  return name !== undefined && name in BUILT_IN_REPORTS;
+  return name === undefined || name in BUILT_IN_REPORTS;
 }
 
 export function App() {
@@ -194,10 +201,9 @@ export function App() {
   /* ── report specs ───────────────────────────────────────────
    *
    * A report is data (docs/REPORTS.md), so "customise the report" is a storage
-   * question. The built-in entries are read-only: `ZH_REPORT` is what the editor
-   * ships, `CLASSIC_REPORT` is the original Absence layout expressed as a spec.
-   * Editing either forks it into a named spec first, the same way the built-in
-   * rule packs fork.
+   * question. The built-in is `CLASSIC_REPORT` — the original Absence layout
+   * expressed as a spec, and the default. Editing it forks a named copy first,
+   * the same way the built-in rule pack forks.
    */
   const [reports, setReports] = useState<ReportSummary[]>(() => listReports());
   /**
@@ -212,18 +218,18 @@ export function App() {
    * without ever being activated), and activating a built-in wrote `undefined`
    * to the pointer — so the choice was lost on reload and the view fell back.
    *
-   * The pointer stores a name, and `@classic` / `@default` are names like any
-   * other: `undefined` means "the editor's built-in default", and nothing else.
+   * The pointer stores a name, and `@classic` is a name like any other:
+   * `undefined` means "nothing chosen", which resolves to the built-in default.
    */
   const [activeName, setActiveName] = useState<string | undefined>(() => activeReportName());
   /** What the report view renders: the report that is *in force*. */
   const [activeSpec, setActiveSpec] = useState<ReportSpec>(
-    () => resolveSpec(activeReportName()) ?? ZH_REPORT,
+    () => resolveSpec(activeReportName()) ?? DEFAULT_REPORT,
   );
   /** What the editor is looking at. Opening a report does not change the above. */
-  const [reportName, setReportName] = useState<string | undefined>(() => activeReportName() ?? "@default");
+  const [reportName, setReportName] = useState<string | undefined>(() => activeReportName() ?? DEFAULT_REPORT_NAME);
   const [reportSpec, setReportSpec] = useState<ReportSpec>(
-    () => resolveSpec(activeReportName()) ?? ZH_REPORT,
+    () => resolveSpec(activeReportName()) ?? DEFAULT_REPORT,
   );
   const [reportPrompt, setReportPrompt] = useState<{ kind: "create"; from: ReportSpec } | undefined>(undefined);
   const [reportToDelete, setReportToDelete] = useState<string | undefined>(undefined);
@@ -312,7 +318,7 @@ export function App() {
       setPack(next);
       // The built-in defaults and the example pack are not files: an edit has to
       // fork into a real pack first, and the editor says so.
-      if (!name || name === EXAMPLE_PACK_NAME) return;
+      if (!name) return;
       try {
         await store.save(name, next, { force: true });
         await refreshPacks();
@@ -351,7 +357,7 @@ export function App() {
       notify(`找不到报告「${name}」`, "error");
       return;
     }
-    setReportName(name ?? "@default");
+    setReportName(name ?? DEFAULT_REPORT_NAME);
     setReportSpec(spec);
   };
 
@@ -372,7 +378,7 @@ export function App() {
     setActiveReport(name);
     setActiveName(name);
     setActiveSpec(spec);
-    setReportName(name ?? "@default");
+    setReportName(name ?? DEFAULT_REPORT_NAME);
     setReportSpec(spec);
     setReports(listReports());
   };
@@ -425,12 +431,12 @@ export function App() {
       // The pointer is gone with the file; fall back to the built-in default.
       setActiveReport(undefined);
       setActiveName(undefined);
-      setActiveSpec(ZH_REPORT);
-      setReportName("@default");
-      setReportSpec(ZH_REPORT);
+      setActiveSpec(DEFAULT_REPORT);
+      setReportName(DEFAULT_REPORT_NAME);
+      setReportSpec(DEFAULT_REPORT);
     } else if (reportName === name) {
-      setReportName("@default");
-      setReportSpec(ZH_REPORT);
+      setReportName(DEFAULT_REPORT_NAME);
+      setReportSpec(DEFAULT_REPORT);
     }
     notify(`已删除报告「${name}」`);
   };
@@ -450,12 +456,7 @@ export function App() {
     // `undefined` means the built-in defaults, not "the active pack": the pack
     // list already shows which pack is active, and picking the defaults has to
     // pick the defaults even when another pack is active.
-    const loaded =
-      name === undefined
-        ? DEFAULT_PACK
-        : name === EXAMPLE_PACK_NAME
-          ? structuredClone(EXAMPLE_PACK)
-          : await store.load(name).catch(() => DEFAULT_PACK);
+    const loaded = name === undefined ? DEFAULT_PACK : await store.load(name).catch(() => DEFAULT_PACK);
     setPackName(name);
     setPack(loaded);
     setSelectedRuleId(loaded.rules[0]?.id);
@@ -813,7 +814,7 @@ export function App() {
               events={events}
               runId={selectedView?.run.id}
               runLabel={selectedView ? `第 ${selectedIndex + 1} 轮` : undefined}
-              readOnly={packName === undefined || packName === EXAMPLE_PACK_NAME}
+              readOnly={packName === undefined}
               onFork={() => createPack()}
               onChange={updateRule}
               onDelete={() => deleteRule(selectedRule)}
@@ -848,22 +849,13 @@ export function App() {
             </div>
             <div className="pane-body stack" style={{ gap: 3 }}>
               <ReportRow
-                label="内置报告"
-                hint="编辑器自带的这一份"
-                count={ZH_REPORT.sections.length}
-                active={activeName === undefined || activeName === "@default"}
-                selected={reportName === "@default"}
-                onSelect={() => openReport("@default")}
-                onActivate={() => activateReport("@default")}
-              />
-              <ReportRow
                 label="原始报告"
-                hint="Absence 的旧版布局，已写成数据"
+                hint="内置的这一份：这一轮做了什么、留下了什么"
                 count={CLASSIC_REPORT.sections.length}
-                active={activeName === "@classic"}
-                selected={reportName === "@classic"}
-                onSelect={() => openReport("@classic")}
-                onActivate={() => activateReport("@classic")}
+                active={activeName === undefined || activeName === DEFAULT_REPORT_NAME}
+                selected={reportName === DEFAULT_REPORT_NAME}
+                onSelect={() => openReport(DEFAULT_REPORT_NAME)}
+                onActivate={() => activateReport(DEFAULT_REPORT_NAME)}
               />
               {reports.map((report) => (
                 <ReportRow
@@ -1027,19 +1019,13 @@ export function App() {
 
       {packJsonOpen ? (
         <JsonDialog
-          title={
-            packName === EXAMPLE_PACK_NAME
-              ? "示例规则包"
-              : packName
-                ? `规则包「${packName}」`
-                : "内置默认规则包"
-          }
-          subtitle={`${pack.rules.length} 条规则${packName === EXAMPLE_PACK_NAME ? " · 只读示例，应用会先复制成新的规则包" : packName ? "" : " · 只读，应用会先复制成新的规则包"}`}
+          title={packName ? `规则包「${packName}」` : "内置默认规则包"}
+          subtitle={`${pack.rules.length} 条规则${packName ? "" : " · 只读，应用会先复制成新的规则包"}`}
           value={pack}
           onClose={() => setPackJsonOpen(false)}
           onCopied={(ok) => notify(ok ? "已复制规则包 JSON" : "复制失败，请手动选择文本", ok ? "info" : "error")}
           actions={
-            packName && packName !== EXAMPLE_PACK_NAME ? (
+            packName ? (
               <button
                 className="btn tiny"
                 onClick={() => downloadPack(packName, serializePack(pack))}
@@ -1057,7 +1043,7 @@ export function App() {
                 notify(`规则包有 ${issues.length} 处问题，已拒绝应用`, "error");
                 return;
               }
-              if (packName === undefined || packName === EXAMPLE_PACK_NAME) {
+              if (packName === undefined) {
                 // Read-only: ask for a name in the editor's own dialog, then
                 // fork. `namePack` keeps the parsed pack until you answer.
                 setPackPrompt({ kind: "apply", pack: next });
@@ -1108,7 +1094,7 @@ export function App() {
           detail={
             packToDelete === packs.find((summary) => summary.active)?.name
               ? "它正在生效，删掉后回到内置默认规则包。"
-              : "内置默认和示例规则包不受影响。"
+              : "内置默认规则包不受影响。"
           }
           onConfirm={() => deletePack(packToDelete)}
           onClose={() => setPackToDelete(undefined)}

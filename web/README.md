@@ -66,8 +66,8 @@ data edit, not a renderer edit.
 ```
 ┌ packs ────┬ rules ─────────────────┬ 1 信息 ─────────────┬ 原生 JSON ──────┐
 │ ●内置默认 │ ⠿ 代理带着错误停止     │ 名称 / 描述 / 标签   │ {                │
-│ ○示例规则 │ ⠿ 未恢复的失败         │ 优先级 / 判读时机     │   "id": "run.…", │
-│ ○work     │ ⠿ 连续失败             │ 2 规则               │   "when": { … }, │
+│ ○work     │ ⠿ 未恢复的失败         │ 优先级 / 判读时机     │   "id": "run.…", │
+│ ＋新建     │ ⠿ 连续失败             │ 2 规则               │   "when": { … }, │
 │ ＋新建     │ ⠿ 进程没收尾           │ 人话版 / 条件 / 预设  │   "when": { … }  │
 │ { } 规则包 │ …                      │ 3 报告               │ }                │
 │ 导入 下载 │                        │ 级别 / 标题 / 证据    │ [放大]           │
@@ -77,8 +77,9 @@ data edit, not a renderer edit.
 **The dot before a pack name is the switch.** Click it and that pack becomes
 **生效** (filled green); click the rest of the row and you open the pack for
 editing. One control per row, and the active pack is the one with the lit dot.
-The read-only **示例规则** entry has no switch (its dot is inert), because a pack
-that is not a file cannot be made active.
+The read-only **内置默认** entry has no switch of its own until you fork it: a
+pack that is not a file cannot be made active, but its dot still shows whether it
+is the one in force.
 
 The report view's lens column also has a 设为生效 button. It is the same
 `activate` call, kept because that column answers a different question — *which
@@ -144,8 +145,8 @@ into an editable pack (which copies what is on screen, including your order).
 
 ```
 ┌ reports ───┬ sections ───────────────┬ 区块 5 · 表格 ──────────┬ 预览 · 这一轮 ──┐
-│ ●内置报告  │ ⠿ 标题        header    │ 标题 [文件]            │ 运行报告 · run_1 │
-│ ○原始报告  │ ⠿ 结论        verdict   │ 数据来源 [facts.…]      │ 触发结果          │
+│ ●原始报告  │ ⠿ 标题        header    │ 标题 [文件]            │ failed           │
+│ ○my-report │ ⠿ 结论        verdict   │ 数据来源 [facts.…]      │ 触发结果          │
 │ ●my-report │ ⠿ 触发结果    findings  │ 列 [路径][方式][+/−]    │ 一览              │
 │ ＋新建     │ ⠿ 一览        stats     │ 筛选 [path][glob][…]   │ 命令              │
 │ 下载       │ ⠿ 表格        table     │ 最多显示 [80]          │ 文件 (filtered)   │
@@ -160,11 +161,15 @@ the right column runs the real renderer against the selected run. The preview is
 not a mock — it is the document you will get, which is why a `{{facts.…}}` typo
 shows up as 「取不到值」 instead of silently rendering empty.
 
-The two built-ins are **内置报告** (what the editor ships) and **原始报告**
-(`CLASSIC_REPORT` — Absence's original layout written as a spec, which is the
-proof that a custom report can express anything the hard-coded one could).
-Editing either forks it into a named copy first, exactly like a built-in rule
-pack.
+There is one built-in: **原始报告** (`CLASSIC_REPORT` — Absence's original layout
+written as a spec, and the default). Editing it forks a named copy first, exactly
+like a built-in rule pack.
+
+The spec itself is English, and the **renderer** speaks Chinese: section titles
+and the outcome headline are translated in `ReportDocument.tsx`. A spec is data
+that anyone can read and share; a host is what turns it into prose for its user.
+That is why there is one built-in rather than two identical documents differing
+only in the language of their titles.
 
 **A table/list/text section can carry a 筛选** — one field, one operator, one
 value, evaluated by the same `matches()` a rule's `where` uses and applied before
@@ -241,12 +246,13 @@ already taken — and a free default per mode (`我的实验`, `Absence 会话`)
 live in `localStorage` and the ✕ on a card deletes one (with the in-page confirm
 dialog); the demos are not deletable.
 
-The pack column lists the built-in defaults, a read-only **示例规则** pack
-(`EXAMPLE_PACK` — twelve rules that each demonstrate one capability of the
-language: globs on files, a window, a sequence, a quantifier, a regex, content
-over the transcript, and the resource snapshot: CPU, memory, host saturation and
-session averages), and then your own packs. Both read-only entries fork on the
-first edit. The dot in front of a row is the 生效 switch; the row itself opens
+The pack column lists the built-in defaults and then your own packs. The built-in
+entry forks on the first edit.
+
+(`EXAMPLE_PACK` still exists in `src/regimen/examples.ts` — it is what the rule
+reference and the checks use for rules the defaults lack — but it is no longer a
+row in the editor. A second read-only pack whose rules you could not activate was
+a list that taught nothing; the defaults themselves are the better example.) The dot in front of a row is the 生效 switch; the row itself opens
 the pack.
 
 ## Why no node canvas

@@ -3,19 +3,17 @@
  *
  * A pack is a set of rules on disk (or the built-in defaults). Selecting a row
  * opens that pack for editing; the dot before the name is the switch — click it
- * to make that pack the *active* one. One control per row, and the dot is it:
- * there is no separate 设为生效 button and no `✓` to read past.
+ * to make that pack the *active* one. One control per row, and the dot is it.
+ *
+ * One entry is not a file: 内置默认, the shipped pack. It is read-only, and
+ * editing it forks a named copy.
  *
  * The rules view gets the full column (new / import / export / delete); the
  * report view gets the compact one, because it only needs to pick a lens.
  */
 
 import { DEFAULT_PACK } from "../../../src/regimen/defaults.ts";
-import { EXAMPLE_PACK } from "../../../src/regimen/examples.ts";
 import type { PackSummary } from "../../../src/store/packStore.ts";
-
-/** The read-only example pack, shown next to the defaults so it is discoverable. */
-export const EXAMPLE_PACK_NAME = "@examples";
 
 export function PackColumn({
   packs,
@@ -62,16 +60,6 @@ export function PackColumn({
           selected={packName === undefined}
           onSelect={() => onSelect(undefined)}
           onActivate={onActivate ? () => onActivate(undefined) : undefined}
-          compact={compact}
-        />
-        <PackRow
-          name={EXAMPLE_PACK_NAME}
-          label="示例规则"
-          count={EXAMPLE_PACK.rules.length}
-          active={false}
-          selected={packName === EXAMPLE_PACK_NAME}
-          onSelect={() => onSelect(EXAMPLE_PACK_NAME)}
-          hint="只读示例：看看规则语言能表达什么，想改先复制成自己的规则包"
           compact={compact}
         />
         {packs.map((summary) => (

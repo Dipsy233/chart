@@ -15,15 +15,34 @@
 import type { RenderedReport, RenderedSection } from "../../../src/report/spec.ts";
 import { zhAction, zhEffect, zhEnum, zhLevel, zhOutcome } from "../lib/plain.ts";
 
-/** The engine's English section titles, in the ward's language. */
+/**
+ * The engine's English section titles, in the ward's language.
+ *
+ * This is the renderer's job, not the spec's. A spec is data and the engine ships
+ * it in English so the CLI, the tests and anyone reading the JSON can follow it;
+ * a *host* speaks its user's language. That is why there is one built-in report
+ * rather than two identical ones differing only in their titles.
+ */
 const ZH_SECTION: Record<string, string> = {
   "at a glance": "一览",
+  "reads": "读过",
   findings: "触发结果",
+  "human attention": "需要你看一眼",
   "unresolved failures": "未恢复的失败",
   commands: "命令",
+  executions: "命令",
   files: "文件",
+  modified: "修改过",
+  created: "新建",
+  observed: "被外部改动",
+  deleted: "删除",
   processes: "进程",
+  read: "读过",
+  searched: "搜索过",
+  mcp: "MCP",
+  "outside the project": "项目之外的改动",
   "world line": "事件时间线",
+  response: "代理的回复",
   evidence: "证据事件",
   "what the agent learned": "读过的东西",
 };
@@ -31,6 +50,28 @@ const ZH_SECTION: Record<string, string> = {
 function zhSection(title: string | undefined): string {
   if (!title) return "";
   return ZH_SECTION[title.toLowerCase()] ?? title;
+}
+
+/**
+ * The engine's English headline, in the ward's language.
+ *
+ * `vars.headline` is one of six sentences (`outcomeHeadline`); a spec may use it
+ * as a subtitle, so it arrives as text and has to be translated as text. Keyed by
+ * the sentence rather than by the outcome because a `failed` run has two of them
+ * and they mean different things.
+ */
+const ZH_HEADLINE: Record<string, string> = {
+  "The agent stopped with an error.": "代理带着错误停止了。",
+  "The run left failures nothing recovered from.": "这一轮留下了没有恢复的失败。",
+  "The agent stopped before finishing.": "代理没有做完就停了。",
+  "No project changes were made.": "这一轮没有改动项目。",
+  "The agent completed, with warnings.": "代理完成了，但有警告。",
+  "The agent completed after recovering from an error.": "代理在出错后恢复并完成了。",
+  "The agent completed the run.": "代理完成了这一轮。",
+};
+
+function zhHeadline(text: string): string {
+  return ZH_HEADLINE[text] ?? text;
 }
 
 const ZH_CELL: Record<string, string> = {
@@ -63,7 +104,9 @@ export function ReportDocument({ report }: { report: RenderedReport }) {
     <div className="report">
       <div className="report-head">
         <h1>{header?.kind === "header" ? header.title : report.title}</h1>
-        {header?.kind === "header" && header.subtitle ? <div className="sub">{header.subtitle}</div> : null}
+        {header?.kind === "header" && header.subtitle ? (
+          <div className="sub">{zhSubtitle(header.subtitle)}</div>
+        ) : null}
         {/*
           * Who judged this. The engine has carried `packHash` on every record
           * since the hash chain landed, and no UI ever showed it — so a report
@@ -83,6 +126,18 @@ export function ReportDocument({ report }: { report: RenderedReport }) {
       ))}
     </div>
   );
+}
+
+/**
+ * A subtitle may be a bare headline (`{{vars.headline}}`), or a headline
+ * followed by ` · <duration>`. Translate the headline part and leave the rest.
+ */
+function zhSubtitle(subtitle: string): string {
+  for (const [english, chinese] of Object.entries(ZH_HEADLINE)) {
+    if (subtitle === english) return chinese;
+    if (subtitle.startsWith(`${english} · `)) return chinese + subtitle.slice(english.length);
+  }
+  return subtitle;
 }
 
 function Section({ section }: { section: RenderedSection }) {

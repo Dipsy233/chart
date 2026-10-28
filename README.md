@@ -177,9 +177,11 @@ report and event views, where every session is visible at once.
   `ReportSpec` (`docs/REPORTS.md`), so this edits data: section cards reorder
   with the same grip, the form is one block per kind (标题 / 结论 / 触发结果 /
   一览 / 表格 / 列表 / 段落 / 时间线 / 证据), and the right column renders the
-  spec against the selected run with the real renderer. Two built-ins ship —
-  **内置报告** and **原始报告** (Absence's old layout, written as a spec) — and
-  editing either forks it into a named copy, the way a built-in rule pack forks.
+  spec against the selected run with the real renderer. One built-in ships —
+  **原始报告** (Absence's old layout, written as a spec, and the default) — and
+  editing it forks a named copy, the way a built-in rule pack forks. The spec is
+  English; the renderer translates titles and headlines, so one document serves
+  both languages.
   A table/list/text section can carry a **筛选**: one field, one operator, one
   value, evaluated by the same `matches()` a rule uses, applied before sort and
   limit. That is what makes "only what changed under `company/`" expressible;

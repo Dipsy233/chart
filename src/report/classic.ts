@@ -67,15 +67,21 @@ export const CLASSIC_REPORT: ReportSpec = {
 
     {
       kind: "stats",
-      title: "Changes",
+      title: "At a glance",
       rows: [
+        { label: "elapsed", value: "{{facts.run.durationMs|duration}}" },
         {
-          label: "+/− changed",
-          value: "{{facts.files.created|count}} created · {{facts.files.modified|count}} modified",
+          label: "commands",
+          value: "{{facts.commands.succeeded}} ok / {{facts.commands.failed}} failed",
         },
-        { label: "observed", value: "{{facts.files.observed|count}}" },
-        { label: "deleted", value: "{{facts.files.deleted|count}}" },
+        {
+          label: "files",
+          value: "{{facts.files.created|count}} created · {{facts.files.modified|count}} modified · {{facts.files.deleted|count}} deleted",
+        },
         { label: "lines", value: "+{{facts.changes.additions}} / −{{facts.changes.deletions}}" },
+        { label: "reads", value: "{{facts.counts.reads}} · {{facts.counts.searches}} searches" },
+        { label: "MCP", value: "{{facts.mcp.calls}} calls · {{facts.mcp.failed}} failed" },
+        { label: "errors", value: "{{facts.errors.total}}" },
       ],
     },
     {

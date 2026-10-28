@@ -41,10 +41,11 @@ A spec renders in two situations, and they must not be confused:
 |---|---|---|
 | `header` | `title`, `subtitle?` | A title block |
 | `verdict` | `title?`, `showFindings?` | Level, outcome, reasons, and (by default) the findings |
-| `findings` | `title?`, `minLevel?`, `tags?`, `limit?`, `empty?` | Findings, loudest first |
+| `findings` | `title?`, `minLevel?`, `tags?`, `limit?`, `empty?`, `filter?` | Findings, loudest first |
 | `stats` | `title?`, `rows: [{label, value}]` | A label/value list |
-| `table` | `source`, `columns`, `sort?`, `limit?`, `empty?` | Rows from an array |
-| `list` | `source`, `item`, `limit?`, `empty?` | One line per element |
+| `table` | `source`, `columns`, `sort?`, `limit?`, `empty?`, `filter?`, `evidence?` | Rows from an array |
+| `list` | `source`, `item`, `limit?`, `empty?`, `filter?`, `evidence?` | One line per element |
+| `text` | `source`, `item?`, `limit?`, `empty?`, `filter?`, `evidence?`, `style?` | A paragraph, or one line per element |
 | `timeline` | `limit?`, `empty?` | The run's world line |
 | `evidence` | `limit?` | Event ids, for the audit trail |
 
@@ -52,6 +53,71 @@ A spec renders in two situations, and they must not be confused:
 render, so the host decides what to do with it.
 
 `table.sort` is `{ field, direction }` and is applied **before** `limit`.
+
+## `filter` — narrowing a section
+
+A `filter` is a plain `When` — the same shape a rule's `where` uses — evaluated
+by the same `matches()` against one element of the `source` array. It is applied
+**before** `sort` and `limit`, so a report can say “the ten biggest files under
+`company/`”.
+
+```jsonc
+{ "kind": "table",
+  "source": "facts.files.byPath",
+  "filter": { "conditions": [{ "field": "path", "op": "glob", "value": "company/**" }] },
+  "columns": [{ "header": "path", "cell": "{{vars.row.path}}" }],
+  "evidence": "evidence" }
+```
+
+Two leaf kinds are rejected by validation: a `window` and a `sequence` need the
+event stream or ordering, which is a *rule's* job, not a row's. The message says
+so (`"belongs in a rule"`) rather than silently ignoring it.
+
+A `findings` section's filter reads the **finding**, so
+`{ "field": "tags", "op": "contains", "value": "commands" }` keeps only the
+findings tagged `commands`.
+
+## `evidence` — keeping rows clickable
+
+A `table` / `list` / `text` section names where to collect each row's event ids,
+as a path under `vars.row`:
+
+```jsonc
+{ "kind": "list", "source": "facts.files.created", "item": "{{vars.row}}",
+  "evidence": "evidence" }
+```
+
+`RenderedSection.evidence` is then a `string[][]`, **index-aligned with the
+rows**, and the host turns it into links. Without it a row is text, so a click
+cannot reach the event that proves it — which is why the shipped Absence report
+could not be expressed as a spec until this existed.
+
+A row that produces no ids gets an empty array rather than a made-up one.
+
+## `text` — prose
+
+A `text` section reads a **string** path and renders it as a paragraph
+(`facts.response`, `facts.firstPrompt`), or an **array** and renders `item` once
+per element (`facts.text.thoughts`, `facts.text.replies`). `style` is
+`paragraph` (default) or `code`.
+
+## Validating a spec
+
+`validateSpec(spec)` returns every problem with a path into the spec, the way
+`validatePack` does for a pack. Rendering stays fail-open — an unknown path
+renders empty so a report can never fail a run — but that is exactly why an
+editor needs validation: a typo'd `source` renders “nothing to show” forever.
+
+`checkTemplate(template, context)` is the other half: it reports placeholders
+that do not resolve, and filters that do not exist. Rendering stays silent;
+the *editor* is where a typo becomes a red line.
+
+## Which pack judged it
+
+`RenderedReport.judgedBy` carries `{ packName?, packHash?, at, replayed? }` when
+the caller knows. A report whose verdict came from a hash-chained record must be
+able to say *which* pack produced it — otherwise a report of last week reads as
+if today's rules had judged it, and `packHash` is a field nobody ever sees.
 
 ## Template context
 
@@ -70,9 +136,14 @@ A string element is `{{vars.row}}`; an object is `{{vars.row.command}}`.
 - `LIVE_REPORT` — header, verdict, findings, six stats. For a run in flight.
 - `SETTLED_REPORT` — header, verdict, findings, stats, commands, files,
   processes, knowledge, world line, evidence. For a run at rest.
+- `CLASSIC_REPORT` — Absence's original report layout, section for section, as
+  data. It exists to prove a claim: **every section of the shipped report is
+  expressible as a spec**, so forking it is editing JSON rather than forking a
+  module. Its four file lists (modified / created / observed / deleted) are one
+  `facts.files.byPath` source with four different `filter`s.
 
-Both are ordinary specs. There is no built-in layout that a custom one cannot
-reach.
+All three are ordinary specs. There is no built-in layout that a custom one
+cannot reach.
 
 ## Guidance
 

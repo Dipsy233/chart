@@ -153,8 +153,12 @@ report and event views, where every session is visible at once.
   names the pack and the rules it fired (and the ones still 待判读).
 - **规则编辑** — packs | rules | the rule. In the packs column the **dot in
   front of a pack is the switch**: click it to make that pack 生效 (it fills
-  green), click the row itself to open the pack — there is no 设为生效 button and
-  no ✓. Creating or deleting a pack asks in an in-page dialog, not a browser
+  green), click the row itself to open the pack. (The report view's lens column
+  keeps a 设为生效 button for the pack it is previewing; it is the same
+  `activate` call, and the two columns exist because the two questions are
+  different — *which pack do I want to try this run against* and *which pack does
+  the observer actually use*. The report header names the second.)
+  Creating or deleting a pack asks in an in-page dialog, not a browser
   prompt. Rule cards are a fixed height and
   reorder with a grip on the left (press, drag, the list opens a slot); the
   attention level is the card's frame colour, not a chip inside it, and the id
@@ -165,6 +169,21 @@ report and event views, where every session is visible at once.
   detail, evidence). **判读时机 is derived, not chosen**: no `facts.ended` condition means
   `both`, `ended = true` means `settled`, `ended = false` means `live` — there is
   no `phase` field to set. Id, cooldown and suppression hide under 更多设置.
+  A **试跑** panel sits under the conditions: it judges the half-written rule
+  against the selected run and says what each condition saw — 满足 / 不满足 /
+  未判读 (a condition `all` short-circuited past) / 出错 — with the value the
+  field actually held. It is labelled 假设，不记录 because it is a simulation.
+- **报告编辑** — reports | sections | the section | the preview. A report is a
+  `ReportSpec` (`docs/REPORTS.md`), so this edits data: section cards reorder
+  with the same grip, the form is one block per kind (标题 / 结论 / 触发结果 /
+  一览 / 表格 / 列表 / 段落 / 时间线 / 证据), and the right column renders the
+  spec against the selected run with the real renderer. Two built-ins ship —
+  **内置报告** and **原始报告** (Absence's old layout, written as a spec) — and
+  editing either forks it into a named copy, the way a built-in rule pack forks.
+  A table/list/text section can carry a **筛选**: one field, one operator, one
+  value, evaluated by the same `matches()` a rule uses, applied before sort and
+  limit. That is what makes "only what changed under `company/`" expressible;
+  it is also what makes `CLASSIC_REPORT` possible at all.
 - **事件流** — runs | events | the event. Pick the round, pick the event, edit
   it: type, time, the payload fields that matter for that type, and the raw JSON.
   Cards reorder with the same grip; adding an event inserts before a trailing

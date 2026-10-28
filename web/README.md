@@ -22,14 +22,15 @@ panel runs the pack. That is the split the whole UI is built around:
 So the feedback loop is a deliberate two-step: change something, then look at the
 report. The report is a playback, so looking is cheap.
 
-## Three views, one state
+## Four views, one state
 
 The top bar switches views. What is being observed — the **监护对象** — is the
 事件会话 column of the report and event views, where every session is visible at
 once.
 
-Everything else — the session's events, the selected pack, the selected run — is
-shared, so the rule you edit is the rule the report judges with.
+Everything else — the session's events, the selected pack, the selected run, the
+selected report spec — is shared, so the rule you edit is the rule the report
+judges with, and the spec you edit is the spec the report renders.
 
 ### 监护报告 — runs | events | the report | the pack
 
@@ -75,10 +76,15 @@ data edit, not a renderer edit.
 
 **The dot before a pack name is the switch.** Click it and that pack becomes
 **生效** (filled green); click the rest of the row and you open the pack for
-editing. There is no separate 设为生效 button and no `✓` to read past — one
-control per row, and the active pack is the one with the lit dot. The read-only
-**示例规则** entry has no switch (its dot is inert), because a pack that is not a
-file cannot be made active.
+editing. One control per row, and the active pack is the one with the lit dot.
+The read-only **示例规则** entry has no switch (its dot is inert), because a pack
+that is not a file cannot be made active.
+
+The report view's lens column also has a 设为生效 button. It is the same
+`activate` call, kept because that column answers a different question — *which
+pack do I want to judge this run with right now* — and a dropdown plus a button
+is the right shape for a preview. The rule column's dot answers *which pack does
+the observer use*; the report header names it, so the two cannot be confused.
 
 **Order is evaluation order.** The grip on the left of every card is the only
 reorder affordance: press, drag, and the list opens a slot under the pointer.
@@ -133,6 +139,39 @@ The rule panel is three numbered blocks, in the order a rule is thought about:
 
 The built-in defaults are read-only; the panel says so and offers to fork them
 into an editable pack (which copies what is on screen, including your order).
+
+### 报告编辑 — reports | sections | the section | the preview
+
+```
+┌ reports ───┬ sections ───────────────┬ 区块 5 · 表格 ──────────┬ 预览 · 这一轮 ──┐
+│ ●内置报告  │ ⠿ 标题        header    │ 标题 [文件]            │ 运行报告 · run_1 │
+│ ○原始报告  │ ⠿ 结论        verdict   │ 数据来源 [facts.…]      │ 触发结果          │
+│ ●my-report │ ⠿ 触发结果    findings  │ 列 [路径][方式][+/−]    │ 一览              │
+│ ＋新建     │ ⠿ 一览        stats     │ 筛选 [path][glob][…]   │ 命令              │
+│ 下载       │ ⠿ 表格        table     │ 最多显示 [80]          │ 文件 (filtered)   │
+│            │ ⠿ 表格        table     │ 没有内容时 [没有。]     │ …                │
+│            │ ⠿ 段落        text      │                        │                  │
+└────────────┴─────────────────────────┴────────────────────────┴──────────────────┘
+```
+
+A report is a `ReportSpec`, so this view edits **data**: the section list
+reorders with the same grip as the rule list, the form is one block per kind, and
+the right column runs the real renderer against the selected run. The preview is
+not a mock — it is the document you will get, which is why a `{{facts.…}}` typo
+shows up as 「取不到值」 instead of silently rendering empty.
+
+The two built-ins are **内置报告** (what the editor ships) and **原始报告**
+(`CLASSIC_REPORT` — Absence's original layout written as a spec, which is the
+proof that a custom report can express anything the hard-coded one could).
+Editing either forks it into a named copy first, exactly like a built-in rule
+pack.
+
+**A table/list/text section can carry a 筛选** — one field, one operator, one
+value, evaluated by the same `matches()` a rule's `where` uses and applied before
+sort and limit. That single control is what makes “only what changed under
+`company/`” expressible, and it is the reason `CLASSIC_REPORT` can be data at
+all: its four file lists (modified / created / observed / deleted) are one
+`facts.files.byPath` source with four different filters.
 
 ### 事件流 — runs | events | the event
 

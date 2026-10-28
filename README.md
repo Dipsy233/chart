@@ -47,7 +47,7 @@ recorded then**, not from today's rules.
 ./start-chart.sh          # installs what is missing, then starts the editor
 ./start-chart.sh api      # the rules API on http://127.0.0.1:5175 (for agents)
 ./start-chart.sh serve    # build the editor, serve it + the API on one port
-./start-chart.sh check    # the 588 assertions
+./start-chart.sh check    # the 668 assertions
 ./start-chart.sh demo     # a real report, plus .chart/demo-events.json for the CLI
 ./start-chart.sh rules list
 ```
@@ -266,16 +266,19 @@ src/
   facts/     build.ts runs.ts diff.ts glob.ts   — pure reduction of a run
   regimen/   predicate window rule evaluate     — the rule engine
              defaults.ts  examples.ts           — the shipped pack, and samples
+             trace.ts describe.ts               — why a rule did or did not fire
   report/    spec render defaults verdict       — specs and the renderer
+             classic.ts validate.ts             — the shipped layout, and checks
   store/     packStore.ts fs.ts                 — packs on disk (validated, atomic)
-  editor/    catalog.ts draft.ts                — the model a rule editor needs
+  editor/    catalog.ts draft.ts                — the model an editor needs
   adapters/  absence.ts                         — the only Absence-aware file
-test/        facts regimen defaults report      — 588 checks, one harness
+test/        facts regimen defaults report      — 668 checks, one harness
              store editor api absence
 scripts/     check.ts demo.ts chart.ts api.ts    — chart.ts and api.ts are the hosts
              absence.ts                         — the read-only Absence hop
 web/         React editor + simulator           — dev tool, not published
 docs/        DESIGN.md RULES.md REPORTS.md EDITOR.md API.md
+CONTRIBUTING.md                                  — commit conventions, incl. `ui`
 ```
 
 No runtime dependencies. `typescript` and `tsx` are dev-only.

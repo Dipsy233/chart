@@ -37,6 +37,7 @@ import type {
   RevertFact,
   Run,
   SearchKnowledge,
+  TextFact,
   TimelineKind,
   TimelineNode,
 } from "../core/types.ts";
@@ -160,6 +161,20 @@ export function buildFacts(events: readonly ChartEvent[], run: Run): Facts {
   let additions = 0;
   let deletions = 0;
   let response: string | undefined;
+  let firstPrompt: string | undefined;
+
+  // The transcript, as text a rule can match. A streaming delta carries a
+  // prefix of the message that follows it, so it is skipped: keeping both would
+  // let one sentence match twice and would make a count depend on how the
+  // runtime chunked its output.
+  const prompts: TextFact[] = [];
+  const replies: TextFact[] = [];
+  const thoughts: TextFact[] = [];
+  const noteText = (into: TextFact[], event: ChartEvent, text: string): void => {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return;
+    into.push({ text: trimmed, at: event.timestamp, eventId: event.id, evidence: [event.id] });
+  };
 
   // Revert detection: the agent's known lines mirror the file store's read
   // accumulator (the v0 state); full contents are the v1..vN states a write or
@@ -280,9 +295,21 @@ export function buildFacts(events: readonly ChartEvent[], run: Run): Facts {
         signals.push({ kind: "search", eventId: event.id, at: event.timestamp });
         break;
       case "message":
-        if (event.payload.role === "assistant" && event.payload.content.trim().length > 0) {
-          response = event.payload.content;
+        // A streaming delta is a prefix of the message that follows it; keeping
+        // both would let one sentence match twice and would make a count rule
+        // depend on how the runtime chunked its output.
+        if (event.payload.streaming === true) break;
+        if (event.payload.role === "user") {
+          noteText(prompts, event, event.payload.content);
+          if (firstPrompt === undefined) firstPrompt = event.payload.content.trim();
+        } else if (event.payload.role === "assistant") {
+          noteText(replies, event, event.payload.content);
+          if (event.payload.content.trim().length > 0) response = event.payload.content;
         }
+        break;
+      case "thinking":
+        if (event.payload.streaming === true) break;
+        noteText(thoughts, event, event.payload.content);
         break;
       case "error":
         errorEvidence.push(event.id);
@@ -546,6 +573,8 @@ export function buildFacts(events: readonly ChartEvent[], run: Run): Facts {
     lastActivityAt,
     evidence,
     response,
+    ...(firstPrompt !== undefined && firstPrompt.length > 0 ? { firstPrompt } : {}),
+    text: { prompts, replies, thoughts },
   };
 }
 

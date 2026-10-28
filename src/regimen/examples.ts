@@ -337,6 +337,40 @@ export const EXAMPLE_PACK: RulePack = {
         evidence: ["facts.processes.primary"],
       },
     },
+    {
+      // Content, not paths: some rules are about what was *said*. A destructive
+      // command the agent actually ran is a fact about the record, but "did it
+      // think about deleting things it has not read" only exists in the
+      // transcript — and that is where a human wants to be warned early.
+      id: "example.destructive-thought",
+      name: "The agent considered an unrecoverable command",
+      description:
+        "The reasoning mentions `rm -rf`, `drop table` or a forced push. Judged live, because the point is to speak before it happens.",
+      source: "user",
+      when: {
+        conditions: [
+          // Judged live on purpose: a warning about a thought is worth nothing
+          // once the run is over.
+          { field: "facts.ended", op: "eq", value: false },
+          {
+            field: "facts.text.thoughts",
+            quant: "any",
+            where: {
+              conditions: [
+                { field: "text", op: "matches", value: "(?i)\\b(rm\\s+-rf|drop\\s+table|git\\s+push\\s+--force)\\b" },
+              ],
+            },
+          },
+        ],
+      },
+      emit: {
+        level: "medium",
+        title: "The agent is thinking about an unrecoverable command",
+        detail: "Content rule over the transcript. Chart reports it; it does not block it.",
+        tags: ["content", "trust"],
+        evidence: [],
+      },
+    },
   ],
 };
 

@@ -184,6 +184,24 @@ export interface OutsideChangeFact {
   evidence: string[];
 }
 
+/**
+ * Something the agent said or was told, kept as text a rule can match.
+ *
+ * A rule that asks "did the agent read the credentials file" can look at paths;
+ * "did the user ask about pricing" can only look at what was said. That is what
+ * this fact is for: the transcript, reduced, with the event ids a finding points
+ * at. Streaming deltas are skipped — the final event carries the same text.
+ */
+export interface TextFact {
+  /** The text as it arrived, trimmed. */
+  text: string;
+  /** When it was said, so a report can order it. */
+  at: number;
+  /** The event the text came from. */
+  eventId: string;
+  /** The events this fact points at — the same id, in the evidence shape. */
+  evidence: string[];
+}
 /* ── Facts ──────────────────────────────────────────────────────────────── */
 
 export interface Facts {
@@ -256,6 +274,33 @@ export interface Facts {
 
   /** The agent's last non-empty assistant message. */
   response?: string;
+
+  /**
+   * The run's opening prompt — the first user message, trimmed.
+   *
+   * Kept as its own string because it is the one piece of text almost every
+   * "was this run about X?" rule wants, and `facts.text.prompts[0].text` is a
+   * mouthful for something that common.
+   */
+  firstPrompt?: string;
+
+  /**
+   * The transcript, as text a rule can match on:
+   *
+   *   { "field": "facts.text.thoughts", "quant": "any",
+   *     "where": { "conditions": [{ "field": "text", "op": "matches", "value": "rm -rf" }] } }
+   *
+   * Commands are not here on purpose: `facts.commandFacts[*].command` already
+   * carries them, together with the exit code a content rule usually also wants.
+   */
+  text: {
+    /** Every user message in the run, in order. */
+    prompts: TextFact[];
+    /** Every non-empty assistant message in the run, in order. */
+    replies: TextFact[];
+    /** Every reasoning block, in order. */
+    thoughts: TextFact[];
+  };
 }
 
 /** The event slice a run was built from — kept for replay and for reports. */

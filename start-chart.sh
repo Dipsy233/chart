@@ -14,7 +14,7 @@
 #  Usage:
 #    ./start-chart.sh              start the editor (http://localhost:5174)
 #    ./start-chart.sh open         start it and open a browser
-#    ./start-chart.sh check        run the 552 checks, then exit
+#    ./start-chart.sh check        run the 588 checks, then exit
 #    ./start-chart.sh demo         print the demo report, then exit
 #    ./start-chart.sh rules        the rule-pack CLI (passes the rest through)
 #    ./start-chart.sh api          the rules API for agents (http://127.0.0.1:5175)

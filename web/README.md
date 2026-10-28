@@ -118,6 +118,12 @@ The rule panel is three numbered blocks, in the order a rule is thought about:
    Pickers come from the catalogue, so a number field only offers number
    operators, a status field offers a select of its known values, and a window's
    `where` only offers payload fields of the event types you picked.
+   **＋内容** adds a content condition in one row — pick 用户说过的话 / 代理说过的话
+   / 代理的思考, an operator (包含 / 匹配正则 / 不包含…), and the text. It writes
+   the same data a hand-written rule would
+   (`{ field: "facts.text.thoughts", quant: "any", where: … "text" … }`), and
+   reads back as one sentence: 代理的思考里有一条 匹配正则 「…」. Commands are
+   matched through `facts.commandFacts`, where the exit code sits beside the text.
    There is **no "add group"**: `(A and B) or C` is a second rule, and the panel
    says so once.
 3. **报告** — the level (four buttons, not a dropdown), the title with an
@@ -197,11 +203,12 @@ live in `localStorage` and the ✕ on a card deletes one (with the in-page confi
 dialog); the demos are not deletable.
 
 The pack column lists the built-in defaults, a read-only **示例规则** pack
-(`EXAMPLE_PACK` — eleven rules that each demonstrate one capability of the
-language: globs on files, a window, a sequence, a quantifier, a regex, and the
-resource snapshot: CPU, memory, host saturation and session averages), and then
-your own packs. Both read-only entries fork on the first edit. The dot in front
-of a row is the 生效 switch; the row itself opens the pack.
+(`EXAMPLE_PACK` — twelve rules that each demonstrate one capability of the
+language: globs on files, a window, a sequence, a quantifier, a regex, content
+over the transcript, and the resource snapshot: CPU, memory, host saturation and
+session averages), and then your own packs. Both read-only entries fork on the
+first edit. The dot in front of a row is the 生效 switch; the row itself opens
+the pack.
 
 ## Why no node canvas
 

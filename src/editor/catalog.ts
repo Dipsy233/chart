@@ -135,6 +135,24 @@ export const FACT_FIELDS: FieldInfo[] = [
   ] },
 
   { path: "facts.response", kind: "string", label: "the agent's last reply" },
+  { path: "facts.firstPrompt", kind: "string", label: "the prompt that opened the run", hint: "the first user message, trimmed", optional: true },
+
+  /* ── the transcript, as text a rule can match ───────────────────────────── */
+  { path: "facts.text.prompts", kind: "array", label: "what the user asked", hint: "every user message in the run", element: [
+    { path: "text", kind: "string", label: "the message" },
+    { path: "at", kind: "dateTime", label: "when" },
+    { path: "eventId", kind: "string", label: "event id" },
+  ] },
+  { path: "facts.text.replies", kind: "array", label: "what the agent said", hint: "every non-empty assistant message", element: [
+    { path: "text", kind: "string", label: "the message" },
+    { path: "at", kind: "dateTime", label: "when" },
+    { path: "eventId", kind: "string", label: "event id" },
+  ] },
+  { path: "facts.text.thoughts", kind: "array", label: "what the agent thought", hint: "every reasoning block; streaming deltas are skipped, so one thought counts once", element: [
+    { path: "text", kind: "string", label: "the thought" },
+    { path: "at", kind: "dateTime", label: "when" },
+    { path: "eventId", kind: "string", label: "event id" },
+  ] },
   { path: "facts.currentPhase", kind: "string", label: "current phase" },
   { path: "facts.lastActivityAt", kind: "dateTime", label: "last activity" },
   { path: "facts.evidence", kind: "array", label: "every event id in the run" },

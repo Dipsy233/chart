@@ -47,7 +47,7 @@ recorded then**, not from today's rules.
 ./start-chart.sh          # installs what is missing, then starts the editor
 ./start-chart.sh api      # the rules API on http://127.0.0.1:5175 (for agents)
 ./start-chart.sh serve    # build the editor, serve it + the API on one port
-./start-chart.sh check    # the 552 assertions
+./start-chart.sh check    # the 588 assertions
 ./start-chart.sh demo     # a real report, plus .chart/demo-events.json for the CLI
 ./start-chart.sh rules list
 ```
@@ -161,8 +161,8 @@ report and event views, where every session is visible at once.
   gets its own line. The rule panel is three numbered blocks: **信息** (name,
   description, tags, priority), **规则** (a plain-language reading, a preset
   palette, and catalogue-driven condition rows: compare / quantify / window /
-  sequence), and **报告** (level, title with an insert-data menu, detail,
-  evidence). **判读时机 is derived, not chosen**: no `facts.ended` condition means
+  sequence / **content**), and **报告** (level, title with an insert-data menu,
+  detail, evidence). **判读时机 is derived, not chosen**: no `facts.ended` condition means
   `both`, `ended = true` means `settled`, `ended = false` means `live` — there is
   no `phase` field to set. Id, cooldown and suppression hide under 更多设置.
 - **事件流** — runs | events | the event. Pick the round, pick the event, edit
@@ -249,7 +249,7 @@ src/
   store/     packStore.ts fs.ts                 — packs on disk (validated, atomic)
   editor/    catalog.ts draft.ts                — the model a rule editor needs
   adapters/  absence.ts                         — the only Absence-aware file
-test/        facts regimen defaults report      — 552 checks, one harness
+test/        facts regimen defaults report      — 588 checks, one harness
              store editor api absence
 scripts/     check.ts demo.ts chart.ts api.ts    — chart.ts and api.ts are the hosts
              absence.ts                         — the read-only Absence hop
@@ -267,7 +267,10 @@ Done and tested:
 - facts: commands (including failed shell tools with no `command` event), files
   (created/modified/deleted/observed, reverts, external changes), processes
   (with lifetimes measured against the run end), MCP, errors, recoveries,
-  streaks, retries, outside changes, knowledge, timeline, phases
+  streaks, retries, outside changes, knowledge, timeline, phases, and the
+  **transcript as text** (`facts.text.prompts` / `.replies` / `.thoughts`, plus
+  `facts.firstPrompt`) so a rule can judge what was *said* — streaming deltas are
+  skipped so one sentence matches once
 - Regimen: flat conditions (23 operators incl. negations), collection
   quantifiers, **event windows** (`count`/`streak`/`gapMs`/`sum`/`max`/`min`/
   `avg`/`distinct` with `lastMs`/`nextMs` spans), a derived `live`/`settled`/`both`

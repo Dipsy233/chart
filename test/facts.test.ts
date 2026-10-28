@@ -249,6 +249,68 @@ section("facts: errors, mcp, response");
   checkEqual("the reply is kept", facts.response, "done");
 }
 
+section("facts: the transcript, as text");
+
+{
+  resetEventIds();
+  const s = session();
+  s.agentStart();
+  s.userMessage("  research Acme pricing  ");
+  s.thinking("start with the filings");
+  s.push("thinking", { content: "start with the", streaming: true });
+  s.reply("working on it");
+  s.reply("   ");
+  s.agentEnd("completed");
+  const facts = factsOf(s.events);
+
+  checkEqual("the user message is kept", facts.text.prompts.map((one) => one.text), [
+    "research Acme pricing",
+  ]);
+  checkEqual("the opening prompt is its own fact", facts.firstPrompt, "research Acme pricing");
+  checkEqual("assistant replies are kept", facts.text.replies.map((one) => one.text), ["working on it"]);
+  // A streaming delta is a prefix of the thought that follows it: keeping both
+  // would let one sentence match twice.
+  checkEqual("a streaming delta is not a second thought", facts.text.thoughts.map((one) => one.text), [
+    "start with the filings",
+  ]);
+  check(
+    "every text fact carries the event it came from",
+    facts.text.thoughts.every((one) => one.eventId.length > 0 && one.evidence[0] === one.eventId),
+  );
+  checkEqual("an empty reply is not a reply", facts.text.replies.length, 1);
+}
+
+{
+  // Each user message opens a new run, so a second prompt is a separate
+  // transcript — the split is the run's, not this fact's.
+  resetEventIds();
+  const s = session();
+  s.agentStart();
+  s.userMessage("first ask");
+  s.reply("first answer");
+  s.agentEnd("completed");
+  s.userMessage("second ask");
+  s.reply("second answer");
+  s.agentEnd("completed");
+  const facts = factsOf(s.events);
+  checkEqual("the newest run has only its own prompt", facts.text.prompts.map((one) => one.text), ["second ask"]);
+  checkEqual("and only its own reply", facts.text.replies.map((one) => one.text), ["second answer"]);
+}
+
+{
+  // A run with no user message still builds: `firstPrompt` is optional, and a
+  // rule that names it must simply not match.
+  resetEventIds();
+  const s = session();
+  s.agentStart();
+  s.thinking("nobody asked, but here we are");
+  s.agentEnd("completed");
+  const facts = factsOf(s.events);
+  checkEqual("no prompt means no firstPrompt", facts.firstPrompt, undefined);
+  checkEqual("but the thoughts are still there", facts.text.thoughts.length, 1);
+  checkEqual("and the lists are always arrays", [facts.text.prompts.length, facts.text.replies.length], [0, 0]);
+}
+
 section("facts: determinism");
 
 {

@@ -327,6 +327,35 @@ section("editor: operator suggestions");
   );
 }
 
+section("catalogue: the transcript is addressable");
+
+{
+  checkEqual("a prompt list exists", fieldFor("facts.text.prompts")?.kind, "array");
+  checkEqual("a thought list exists", fieldFor("facts.text.thoughts")?.kind, "array");
+  checkEqual("its element is the text", fieldFor("facts.text.thoughts.text")?.kind, "string");
+  checkEqual("the first prompt is a string", fieldFor("facts.firstPrompt")?.kind, "string");
+  // Nobody may have asked, so the field is optional and a rule naming it has to
+  // survive its absence rather than be told it does not exist.
+  check("and it is optional", fieldFor("facts.firstPrompt")?.optional === true);
+
+  // Every element path of every text list has to resolve on a real fact object,
+  // or a `where` over it would silently never match.
+  const events = richRun();
+  const facts = buildFacts(events, pickRun(deriveRuns(events))!);
+  const missing: string[] = [];
+  for (const list of ["prompts", "replies", "thoughts"] as const) {
+    const entries = facts.text[list];
+    const info = fieldFor(`facts.text.${list}`)!;
+    for (const field of info.element ?? []) {
+      if (entries.length === 0) continue;
+      for (const entry of entries) {
+        if (resolvePath(entry, field.path) === undefined) missing.push(`facts.text.${list}.${field.path}`);
+      }
+    }
+  }
+  checkEqual("every element field resolves on a real text fact", missing, []);
+}
+
 section("editor: preview a rule against a run");
 
 {

@@ -16,6 +16,7 @@ import { evaluate, emptyRuleState } from "../src/regimen/evaluate.ts";
 import { hashPack, mergePacks, orderedRules, validatePack, type RulePack } from "../src/regimen/rule.ts";
 import { DEFAULT_PACK } from "../src/regimen/defaults.ts";
 import { EXAMPLE_PACK } from "../src/regimen/examples.ts";
+import { effectivePhase } from "../src/editor/draft.ts";
 import { factsOf, resetEventIds, session } from "./fixtures.ts";
 import type { ChartEvent } from "../src/core/events.ts";
 
@@ -901,6 +902,115 @@ section("sequences: evidence and templates");
   checkEqual("the evidence is the three events", result.findings[0]?.evidence.length, 3);
 }
 
+section("content: what was said, not what was recorded");
+
+{
+  const runOf = (build: (s: ReturnType<typeof session>) => void) => {
+    resetEventIds();
+    const s = session();
+    s.agentStart();
+    build(s);
+    s.agentEnd("completed");
+    const events = s.events;
+    return windowCtx(events, events[events.length - 1]!.timestamp);
+  };
+
+  // The shape the editor writes for a content condition: one text list, one
+  // needle. It has to be a plain `quant` condition, not a new kind of node.
+  const content = (field: string, op: "contains" | "matches" | "notContains" | "nonEmpty", value?: string): Condition => ({
+    field,
+    quant: "any",
+    where: { conditions: [value === undefined ? { field: "text", op } : { field: "text", op, value }] },
+  });
+
+  const asked = runOf((s) => {
+    s.userMessage("please refresh the pricing cache");
+    s.reply("on it");
+  });
+  check("a prompt can be matched", yes(one(content("facts.text.prompts", "contains", "pricing")), asked));
+  check("a prompt that was not said does not match", no(one(content("facts.text.prompts", "contains", "invoice")), asked));
+  check("a reply can be matched", yes(one(content("facts.text.replies", "contains", "on it")), asked));
+  check("a regex works too", yes(one(content("facts.text.prompts", "matches", "(?i)PRICING")), asked));
+  check("a negated needle", yes(one(content("facts.text.prompts", "notContains", "invoice")), asked));
+
+  const thought = runOf((s) => {
+    s.userMessage("clean up the build dir");
+    s.thinking("I should never run rm -rf on a path I have not checked");
+    s.reply("done");
+  });
+  check(
+    "a thought can be matched",
+    yes(one(content("facts.text.thoughts", "matches", "(?i)\\brm -rf\\b")), thought),
+  );
+  // The transcript lists are per run and per role: a thought is not a reply.
+  check("a thought is not a reply", no(one(content("facts.text.replies", "contains", "rm -rf")), thought));
+
+  // The opening prompt is also addressable directly, which is what most
+  // "was this run about X?" rules want.
+  checkEqual("the run's own prompt is a fact", thought.facts.firstPrompt, "clean up the build dir");
+  check("and it compares as a string", yes(one({ field: "facts.firstPrompt", op: "contains", value: "build" }), thought));
+
+  const silent = runOf((s) => {
+    s.thinking("nothing to say");
+  });
+  check("no reply means no reply match", no(one(content("facts.text.replies", "nonEmpty")), silent));
+  check("but the thought is there", yes(one(content("facts.text.thoughts", "nonEmpty")), silent));
+}
+
+section("content: commands are matched through their own facts");
+
+{
+  // A command's text lives in `facts.commandFacts[*].command` (with its exit
+  // code beside it) and, for "in the last N minutes", in a window over
+  // `payload.command`. Both routes are covered here because a user will use both.
+  resetEventIds();
+  const s = session();
+  s.agentStart();
+  s.command("npm test", 1);
+  s.command("rm -rf ./dist", 0);
+  s.agentEnd("completed");
+  const events = s.events;
+  const context = windowCtx(events, events[events.length - 1]!.timestamp);
+  const facts = context.facts;
+
+  const commandContains = (needle: string): Condition => ({
+    field: "facts.commandFacts",
+    quant: "any",
+    where: { conditions: [{ field: "command", op: "contains", value: needle }] },
+  });
+  check("a command's text is matchable", yes(one(commandContains("rm -rf")), context));
+  check("and a command that did not run is not", no(one(commandContains("cargo build")), context));
+
+  const destructive = evaluate(
+    {
+      version: 1,
+      rules: [
+        {
+          id: "user.destructive",
+          when: {
+            conditions: [
+              { field: "facts.commandFacts", quant: "any", where: { conditions: [{ field: "command", op: "matches", value: "(?i)\\brm\\s+-rf\\b" }] } },
+            ],
+          },
+          emit: { level: "high", title: "destructive", evidence: ["facts.commandFacts"] },
+        },
+      ],
+    },
+    { facts, live: {}, events, anchor: facts.lastActivityAt },
+  );
+  checkEqual("a destructive command fires the rule", destructive.findings.length, 1);
+
+  const windowed = one({
+    window: {
+      events: { type: ["command"], where: { conditions: [{ field: "payload.command", op: "contains", value: "npm test" }] } },
+      measure: "count",
+      op: "gte",
+      value: 1,
+    },
+  });
+  check("a window over command text matches", yes(windowed, context));
+}
+
 section("the example pack");
 
 {
@@ -930,6 +1040,29 @@ section("the example pack");
   check("a reply claiming tests with none run fires", fires("I ran the tests and they all pass."));
   check("the match is case-insensitive", fires("All TESTS pass."));
   check("a reply that does not mention tests is quiet", !fires("I read the file."));
+
+  // The content example has to do what its name says, or it is a broken doc.
+  const destructive = EXAMPLE_PACK.rules.find((rule) => rule.id === "example.destructive-thought")!;
+  // Still in flight: the example is a live rule (`facts.ended eq false`), because
+  // a warning about a thought is worth nothing once the run is over.
+  const thoughtFires = (thought: string) => {
+    resetEventIds();
+    const s = session();
+    s.agentStart();
+    s.userMessage("clean the build directory");
+    s.thinking(thought);
+    const events = s.events;
+    const facts = factsOf(events);
+    return (
+      evaluate({ version: 1, rules: [destructive] }, { facts, live: {}, events, anchor: facts.lastActivityAt })
+        .findings.length > 0
+    );
+  };
+  check("thinking about rm -rf fires", thoughtFires("I could just run rm -rf ./dist"));
+  check("and it is case-insensitive", thoughtFires("Maybe RM -RF the folder"));
+  check("an ordinary thought is quiet", !thoughtFires("I will read the file first"));
+  // It is judged live, because the point is to speak before it happens.
+  checkEqual("the content example is a live rule", effectivePhase(destructive), "live");
 }
 
 finish();

@@ -79,6 +79,10 @@ const ZH_FIELD: Record<string, string> = {
   "facts.reverts": "被改回去的文件",
   "facts.outsideChanges": "项目外的改动",
   "facts.response": "代理最后的回复",
+  "facts.firstPrompt": "开场的提问",
+  "facts.text.prompts": "用户说过的话",
+  "facts.text.replies": "代理说过的话",
+  "facts.text.thoughts": "代理的思考",
   "facts.currentPhase": "当前阶段",
   "facts.lastActivityAt": "最后活动时间",
   "facts.mcp.calls": "MCP 调用次数",
@@ -168,6 +172,25 @@ function valueText(value: JsonValue | undefined): string {
   return String(value);
 }
 
+const CONTENT_TYPES: Array<{ path: string; label: string }> = [
+  { path: "facts.text.prompts", label: "用户的话" },
+  { path: "facts.text.replies", label: "代理的话" },
+  { path: "facts.text.thoughts", label: "代理的思考" },
+];
+
+/** The text list a content-shaped condition reads, or undefined. */
+function contentTypeOf(condition: Extract<Condition, { quant: unknown }>): { path: string; label: string } | undefined {
+  if (condition.quant !== "any") return undefined;
+  const found = CONTENT_TYPES.find((entry) => entry.path === condition.field);
+  if (!found) return undefined;
+  const where = condition.where;
+  if (!where || where.conditions.length !== 1) return undefined;
+  if ((where.combinator ?? "all") !== "all") return undefined;
+  const only = where.conditions[0]!;
+  if ("window" in only || "sequence" in only || "quant" in only) return undefined;
+  return only.field === "text" ? found : undefined;
+}
+
 function conditionText(condition: Condition): string {
   if ("window" in condition) {
     const spec = condition.window;
@@ -199,6 +222,19 @@ function conditionText(condition: Condition): string {
   }
 
   if ("quant" in condition) {
+    // The content shape the editor writes reads as one sentence; the generic
+    // quantifier wording ("every element of … where …") would hide what the rule
+    // is actually about.
+    const content = contentTypeOf(condition);
+    if (content !== undefined) {
+      const where = condition.where;
+      const only = where?.conditions[0];
+      const op = only && !("window" in only) && !("sequence" in only) && !("quant" in only) ? only.op : undefined;
+      const value = only && !("window" in only) && !("sequence" in only) && !("quant" in only) ? only.value : undefined;
+      if (op === "empty") return `${content.label} 是空的`;
+      if (op === "nonEmpty") return `${content.label} 不为空`;
+      return `${content.label}里有一条 ${zhOp(op ?? "contains")} 「${valueText(value)}」`;
+    }
     if (condition.quant === "count") {
       return `${zhField(condition.field)} 的项数 ${zhOp(condition.op)} ${valueText(condition.value)}`;
     }
@@ -565,6 +601,7 @@ export function fieldGroup(path: string): string {
     return "运行";
   }
   if (path.startsWith("facts.knowledge") || path === "facts.response") return "阅读与输出";
+  if (path.startsWith("facts.text") || path === "facts.firstPrompt") return "对话内容";
   return "异常";
 }
 
@@ -702,6 +739,41 @@ export const CONDITION_PRESETS: ConditionPreset[] = [
     label: "出现错误事件",
     hint: "error 事件，通常比失败命令更弱",
     build: () => ({ field: "facts.errors.total", op: "gt", value: 0 }),
+  },
+  /* ── content: what was said, not what was recorded ─────────────────────── */
+  {
+    id: "prompt-mentions",
+    label: "用户的话里提到…",
+    hint: "读的是开场那一段提问",
+    build: () => ({ field: "facts.firstPrompt", op: "matches", value: "" }),
+  },
+  {
+    id: "reply-mentions",
+    label: "代理的回复里提到…",
+    hint: "最后一条非空的 assistant 消息",
+    build: () => ({ field: "facts.response", op: "matches", value: "" }),
+  },
+  {
+    id: "thought-mentions",
+    label: "思考里出现…",
+    hint: "推理（thinking）正文，流式增量不重复计",
+    build: () => ({
+      field: "facts.text.thoughts",
+      quant: "any",
+      where: { conditions: [{ field: "text", op: "matches", value: "" }] },
+    }),
+  },
+  {
+    id: "said-dangerous",
+    label: "提到危险操作…",
+    hint: "对话里提到删除、强推、格式化这类词",
+    build: () => ({
+      field: "facts.text.replies",
+      quant: "any",
+      where: {
+        conditions: [{ field: "text", op: "matches", value: "(?i)\\b(rm -rf|force push|drop table|format c:)\\b" }],
+      },
+    }),
   },
 ];
 

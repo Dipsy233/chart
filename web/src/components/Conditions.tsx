@@ -23,6 +23,7 @@ import { EVENT_TYPES, allFields, eventFields, type FieldInfo } from "../../../sr
 import {
   operatorsFor,
   type Condition,
+  type JsonValue,
   type ScalarOp,
   type ValueKind,
   type When,
@@ -41,13 +42,14 @@ import {
 } from "../lib/plain.ts";
 import { ValueInput } from "./ValueInput.tsx";
 
-type Kind = "field" | "quant" | "window" | "sequence";
+type Kind = "field" | "quant" | "window" | "sequence" | "content";
 
 const KIND_LABEL: Record<Kind, string> = {
   field: "比较",
   quant: "统计",
   window: "时间窗口",
   sequence: "顺序步骤",
+  content: "内容",
 };
 
 const KIND_HINT: Record<Kind, string> = {
@@ -55,6 +57,7 @@ const KIND_HINT: Record<Kind, string> = {
   quant: "对一个列表做统计：有几个、有没有、是不是每一项都满足",
   window: "只看锚点前后一段时间里的事件，而不是整轮的总数",
   sequence: "事件按先后顺序出现才算，比如 失败 → 成功 → 又失败",
+  content: "看命令、思考或消息里写了什么 —— 一条事件的内容符合就算命中",
 };
 
 /* ── the list ────────────────────────────────────────────────────────────── */
@@ -158,6 +161,9 @@ export function ConditionList({
           <button className="btn tiny" onClick={() => add(blankCondition("sequence"))}>
             ＋顺序步骤
           </button>
+          <button className="btn tiny" onClick={() => add(blankCondition("content"))}>
+            ＋内容
+          </button>
           <button
             className={`btn tiny${showPresets ? " on" : ""}`}
             onClick={() => setShowPresets((open) => !open)}
@@ -217,6 +223,13 @@ function blankCondition(kind: Kind): Condition {
       },
     };
   }
+  if (kind === "content") {
+    return {
+      field: "facts.text.thoughts",
+      quant: "any",
+      where: { conditions: [{ field: "text", op: "contains", value: "" }] },
+    };
+  }
   if (kind === "quant") {
     return { field: "facts.processes.runningAtEnd", quant: "count", op: "gte", value: 1 };
   }
@@ -238,7 +251,15 @@ function ConditionRow({
   onRemove: () => void;
   eventMode?: boolean;
 }) {
-  const kind: Kind = "window" in condition ? "window" : "quant" in condition ? "quant" : "sequence" in condition ? "sequence" : "field";
+  const kind: Kind = "window" in condition
+    ? "window"
+    : "sequence" in condition
+      ? "sequence"
+      : "quant" in condition
+        ? contentSourceOf(condition) !== undefined
+          ? "content"
+          : "quant"
+        : "field";
 
   return (
     <div className={`cond ${kind}`}>
@@ -254,7 +275,11 @@ function ConditionRow({
       {"window" in condition ? (
         <WindowRow spec={condition.window} onChange={(window) => onChange({ window })} />
       ) : "quant" in condition ? (
-        <QuantRow condition={condition} onChange={onChange} />
+        contentSourceOf(condition) !== undefined ? (
+          <ContentRow condition={condition} onChange={onChange} />
+        ) : (
+          <QuantRow condition={condition} onChange={onChange} />
+        )
       ) : "sequence" in condition ? (
         <SequenceRow spec={condition.sequence} onChange={(sequence) => onChange({ sequence })} />
       ) : (
@@ -324,6 +349,129 @@ function FieldRow({
   );
 }
 
+/* ── content: what was said, not what was recorded ───────────────────────── */
+
+/**
+ * Which text list a condition reads, when it reads one.
+ *
+ * A window can already say "a message containing X", but a *content* condition is
+ * the natural way to ask it: one row, one field, one needle. These are the three
+ * facts that hold text, and the shape below is exactly what such a rule looks
+ * like:
+ *
+ *   { field: "facts.text.thoughts", quant: "any",
+ *     where: { conditions: [{ field: "text", op: "contains", value: "…" }] } }
+ */
+const CONTENT_SOURCES = ["facts.text.prompts", "facts.text.replies", "facts.text.thoughts"] as const;
+type ContentSource = (typeof CONTENT_SOURCES)[number];
+
+function contentSourceOf(condition: Extract<Condition, { quant: unknown }>): ContentSource | undefined {
+  if (condition.quant !== "any") return undefined;
+  const source = CONTENT_SOURCES.find((path) => path === condition.field);
+  if (!source) return undefined;
+  const where = condition.where;
+  if (!where || where.conditions.length === 0) return source;
+  if ((where.combinator ?? "all") !== "all") return undefined;
+  // Only the one-row shape the editor writes is treated as a content condition;
+  // anything more elaborate is a real quantifier and keeps its own editor.
+  if (where.conditions.length > 1) return undefined;
+  const only = where.conditions[0]!;
+  if ("window" in only || "sequence" in only || "quant" in only) return undefined;
+  return only.field === "text" ? source : undefined;
+}
+
+const CONTENT_LABEL: Record<ContentSource, string> = {
+  "facts.text.prompts": "用户说过的话",
+  "facts.text.replies": "代理说过的话",
+  "facts.text.thoughts": "代理的思考",
+};
+
+const CONTENT_OP: ReadonlySet<ScalarOp> = new Set<ScalarOp>([
+  "contains",
+  "notContains",
+  "matches",
+  "notMatches",
+  "startsWith",
+  "notStartsWith",
+  "endsWith",
+  "notEndsWith",
+  "eq",
+  "ne",
+  "empty",
+  "nonEmpty",
+]);
+
+function ContentRow({
+  condition,
+  onChange,
+}: {
+  condition: Extract<Condition, { quant: unknown }>;
+  onChange: (condition: Condition) => void;
+}) {
+  const source = contentSourceOf(condition);
+  // A condition that no longer parses as "content" still has to render; fall
+  // back to the source its field names so the row is never blank.
+  const current: ContentSource =
+    source ?? CONTENT_SOURCES.find((path) => path === condition.field) ?? "facts.text.thoughts";
+  const where = condition.where;
+  const only = where?.conditions.find(
+    (candidate): candidate is Extract<Condition, { field: string; op: ScalarOp }> =>
+      !("window" in candidate) && !("sequence" in candidate) && !("quant" in candidate),
+  );
+  const op: ScalarOp = only && CONTENT_OP.has(only.op) ? only.op : "contains";
+  const value = only?.value;
+
+  const update = (nextSource: ContentSource, nextOp: ScalarOp, nextValue: JsonValue | undefined) => {
+    onChange({
+      field: nextSource,
+      quant: "any",
+      where: {
+        conditions: [
+          nextValue === undefined ? { field: "text", op: nextOp } : { field: "text", op: nextOp, value: nextValue },
+        ],
+      },
+    });
+  };
+
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      <div className="cond-row">
+        <select
+          className="field"
+          value={current}
+          onChange={(event) => update(event.target.value as ContentSource, op, value)}
+          title="看哪一段文本"
+        >
+          {CONTENT_SOURCES.map((path) => (
+            <option key={path} value={path}>
+              {CONTENT_LABEL[path]}
+            </option>
+          ))}
+        </select>
+        <select
+          className="field op"
+          value={op}
+          onChange={(event) => update(current, event.target.value as ScalarOp, value)}
+          title="怎么比对这段文本"
+        >
+          {[...CONTENT_OP].map((candidate) => (
+            <option key={candidate} value={candidate}>
+              {zhOp(candidate)}
+            </option>
+          ))}
+        </select>
+        <ValueInput
+          op={op}
+          kind="string"
+          value={value}
+          onChange={(next) => update(current, op, next)}
+        />
+      </div>
+      <span className="field-path">{current} · text</span>
+    </div>
+  );
+}
+
 /* ── quantify ────────────────────────────────────────────────────────────── */
 
 function QuantRow({
@@ -386,6 +534,8 @@ function QuantRow({
           <span className="zh-hint">其中每一项要满足…</span>
           <ConditionList
             when={condition.where ?? { conditions: [] }}
+            // A content list also offers the whole-message shortcuts: `text`
+            // is what a row edits, but a rule may legitimately want `at`.
             fields={info.element}
             palette={false}
             onChange={(where) => onChange({ ...condition, where: where.conditions.length > 0 ? where : undefined })}

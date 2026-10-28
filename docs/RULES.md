@@ -238,6 +238,61 @@ The ladder stops here on purpose (`docs/DESIGN.md` §3).
 | a moment in time | `timestamp` (`gte`, `between`, …) |
 | resources | `live.metrics.eggs[*].cpuPercent` — a snapshot, not an event |
 
+## Content: commands, thoughts and messages
+
+Paths answer "what happened"; content answers "**what was said**". Three facts
+hold the transcript, and one holds a command's text:
+
+| Path | Kind | Meaning |
+|---|---|---|
+| `facts.firstPrompt` | string | the run's opening user message, trimmed. Absent when nobody asked |
+| `facts.response` | string | the last non-empty assistant message |
+| `facts.text.prompts[*].text` | array | every user message in the run, in order |
+| `facts.text.replies[*].text` | array | every non-empty assistant message |
+| `facts.text.thoughts[*].text` | array | every reasoning block |
+| `facts.commandFacts[*].command` | array | every command's text, next to its `exitCode` and `status` |
+
+Every text fact carries `text`, `at` and `eventId`, and its `evidence` is that
+event id — so a finding can point at the exact message it read.
+
+**Streaming deltas are skipped.** A `message`/`thinking` with `streaming: true`
+is a prefix of the message that eventually follows it. Keeping both would let one
+sentence match twice and would make a count depend on how the runtime chunked its
+output, so the fact keeps the final event only. That is the same cut
+`isStreamingEvent` makes for the timeline.
+
+```jsonc
+// Did the agent think about deleting something?
+{ "field": "facts.text.thoughts", "quant": "any",
+  "where": { "conditions": [{ "field": "text", "op": "matches", "value": "(?i)\brm -rf\b" }] } }
+
+// Was this run about pricing?
+{ "field": "facts.firstPrompt", "op": "contains", "value": "pricing" }
+
+// Did the agent run something destructive? (text *and* outcome, one row)
+{ "field": "facts.commandFacts", "quant": "any",
+  "where": { "conditions": [
+    { "field": "command", "op": "matches", "value": "(?i)\brm\s+-rf\b" },
+    { "field": "status", "op": "eq", "value": "success" } ] } }
+```
+
+A window can still match content per event — useful when *timing* matters:
+
+```jsonc
+{ "window": { "events": { "type": ["command"],
+                          "where": { "conditions": [{ "field": "payload.command", "op": "contains", "value": "npm test" }] } },
+              "span": { "lastMs": 600000 }, "measure": "count", "op": "eq", "value": 0 } }
+```
+
+Commands are deliberately not in `facts.text`: `facts.commandFacts` already
+carries them *with the exit code*, and a content rule about a command almost
+always also wants the outcome. The window form above stays available for "in the
+last N minutes, no command mentioned X".
+
+In the editor this is the **＋内容** condition: pick a list (用户说过的话 /
+代理说过的话 / 代理的思考), an operator (包含 / 匹配正则 / …), and the text. It
+writes exactly the `quant` + `text` shape above — data, not a new node.
+
 ## Resources: `live.metrics`
 
 Resource usage is **not** an event: the host samples the process tree on its own

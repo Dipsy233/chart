@@ -30,7 +30,7 @@
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ChartEvent } from "../../../src/core/events.ts";
-import { observeRun, renderReport, validateSpec, checkTemplate } from "../../../src/index.ts";
+import { observeRun, renderReport, validateSpec, checkSpecTemplates, knownFieldFor } from "../../../src/index.ts";
 import { deriveRuns } from "../../../src/facts/runs.ts";
 import type { Run } from "../../../src/core/types.ts";
 import type { ReportSection, ReportSpec, SectionFilter } from "../../../src/report/spec.ts";
@@ -663,9 +663,21 @@ function ReportPreview({
     return { observation, rendered: renderReport(spec, { facts: observation.facts, attention: observation.attention }) };
   }, [spec, events, runId, pack]);
 
+  // Every template, checked against the *real* context — including the row
+  // context a table/list actually renders with. The engine owns this now
+  // (`checkSpecTemplates`); a UI copy of it reported every `{{vars.row.…}}` as
+  // unresolved because it checked against an empty row.
   const templateIssues = useMemo(() => {
     if (!preview) return [];
-    return checkSpecTemplates(spec, preview.observation);
+    const context = {
+      facts: preview.observation.facts,
+      live: {},
+      vars: { outcome: "", headline: "" },
+    };
+    // `known` is what keeps this from being noise: a field the catalogue knows
+    // is not a typo even when this run has no value for it (`durationMs` is
+    // optional, `live.elapsedSeconds` is derived from the clock).
+    return checkSpecTemplates(spec, context, { known: knownFieldFor() });
   }, [spec, preview]);
 
   return (
@@ -704,40 +716,4 @@ function ReportPreview({
 function runOf(events: ChartEvent[], runId?: string): Run {
   const runs = deriveRuns(events);
   return runs.find((run) => run.id === runId) ?? runs[runs.length - 1]!;
-}
-
-/** Every template in the spec, checked against a real observation. */
-function checkSpecTemplates(
-  spec: ReportSpec,
-  observation: ReturnType<typeof observeRun>,
-): Array<{ path: string; message: string }> {
-  const context = {
-    facts: observation.facts,
-    live: {},
-    vars: { outcome: "", headline: "", row: {} },
-  };
-  const out: Array<{ path: string; message: string }> = [];
-  const check = (path: string, template: string | undefined) => {
-    if (!template) return;
-    for (const issue of checkTemplate(template, context)) {
-      out.push({ path, message: issue.message });
-    }
-  };
-
-  check("title", spec.title);
-  spec.sections.forEach((section, index) => {
-    if ("title" in section) check(`sections[${index}].title`, section.title);
-    if (section.kind === "header") check(`sections[${index}].subtitle`, section.subtitle);
-    if (section.kind === "stats") {
-      section.rows.forEach((row, rowIndex) => check(`sections[${index}].rows[${rowIndex}].value`, row.value));
-    }
-    if (section.kind === "table") {
-      section.columns.forEach((column, columnIndex) =>
-        check(`sections[${index}].columns[${columnIndex}].cell`, column.cell),
-      );
-    }
-    if (section.kind === "list") check(`sections[${index}].item`, section.item);
-    if (section.kind === "text" && section.item) check(`sections[${index}].item`, section.item);
-  });
-  return out;
 }

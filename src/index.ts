@@ -132,7 +132,14 @@ export type {
   SectionFilter,
 } from "./report/spec.ts";
 export { renderReport, renderText, type RenderContext } from "./report/render.ts";
-export { validateSpec, type SpecIssue } from "./report/validate.ts";
+export {
+  validateSpec,
+  checkSpecTemplates,
+  knownFieldFor,
+  type SpecIssue,
+  type TemplateIssueAt,
+  type TemplateCheckOptions,
+} from "./report/validate.ts";
 export { LIVE_REPORT, SETTLED_REPORT, DEFAULT_REPORTS } from "./report/defaults.ts";
 export { CLASSIC_REPORT } from "./report/classic.ts";
 export { deriveOutcome, outcomeHeadline } from "./report/verdict.ts";

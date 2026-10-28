@@ -1,5 +1,5 @@
 import { check, checkEqual, finish, section } from "./harness.ts";
-import { observe, report, reportText, toChartEvents, validateSpec } from "../src/index.ts";
+import { observe, report, reportText, toChartEvents, validateSpec, checkSpecTemplates, knownFieldFor } from "../src/index.ts";
 import { CLASSIC_REPORT } from "../src/report/classic.ts";
 import { LIVE_REPORT, SETTLED_REPORT } from "../src/report/defaults.ts";
 import { deriveOutcome } from "../src/report/verdict.ts";
@@ -378,6 +378,178 @@ section("report: which pack judged it");
   const rendered = report(observe(s.events)!, SETTLED_REPORT);
   checkEqual("the report names the pack that judged it", rendered.judgedBy?.packName, "内置默认规则");
   check("the report carries the judgement's anchor", typeof rendered.judgedBy?.at === "number");
+}
+
+section("report: every shipped template resolves");
+
+{
+  // The bug this pins: a template check that binds `vars.row` to `{}` reports
+  // every `{{vars.row.…}}` in the spec as unresolved — 22 false alarms on the
+  // classic report alone. A row template must be checked against a *real* row.
+  const s = session();
+  s.agentStart();
+  s.read("company/brief.txt", "text", 1, 3);
+  s.write("company/intro.txt", "hi");
+  s.write("src/a.ts", "x");
+  s.edit("src/a.ts", "x", "y");
+  s.command("npm test", 0);
+  s.command("npm run build", 1);
+  s.search("grep", "TODO", 4);
+  s.process({ pid: 9, name: "vite" });
+  s.mcp("fs", "read", false);
+  s.change("../outside.txt", "modified", true);
+  s.reply("done");
+  s.agentEnd("completed");
+  const observation = observe(s.events)!;
+  const context = { facts: observation.facts, live: {}, vars: { outcome: "", headline: "" } };
+
+  const known = knownFieldFor();
+  checkEqual(
+    "the classic spec has no unresolved template",
+    checkSpecTemplates(CLASSIC_REPORT, context, { known }),
+    [],
+  );
+  checkEqual("the settled spec has none either", checkSpecTemplates(SETTLED_REPORT, context, { known }), []);
+  checkEqual("the live spec has none", checkSpecTemplates(LIVE_REPORT, context, { known }), []);
+
+  // A real typo is still caught, and still points at the section that holds it.
+  const typo = {
+    ...CLASSIC_REPORT,
+    sections: [
+      {
+        kind: "table" as const,
+        source: "facts.commandFacts",
+        columns: [{ header: "c", cell: "{{vars.row.commandd}}" }],
+      },
+    ],
+  };
+  const issues = checkSpecTemplates(typo, context, { known });
+  checkEqual("a typo in a row cell is still reported", issues.length, 1);
+  checkEqual("and it names the column", issues[0]?.path, "sections[0].columns[0].cell");
+  check("and the path inside it", issues[0]?.path.includes("columns[0].cell") === true);
+  checkEqual("the expression is the placeholder as written", issues[0]?.expression, "{{vars.row.commandd}}");
+}
+
+{
+  // The distinction the whole `known` predicate exists for: an absent value is
+  // not a typo. `durationMs` is optional on a command, and the run below has a
+  // command with no start time — so the field is missing, and must not be
+  // reported. The same template with a misspelled field still is.
+  const s = session();
+  s.agentStart();
+  // A shell tool that started and has not ended: `status: "running"`, and
+  // genuinely no `durationMs` — the field is optional because of exactly this.
+  s.push("tool_start", { toolCallId: "call_run", toolName: "bash", args: { command: "npm test" } });
+  const observation = observe(s.events)!;
+  const context = { facts: observation.facts, live: {}, vars: { outcome: "", headline: "" } };
+  const known = knownFieldFor();
+
+  check(
+    "the command really has no duration",
+    observation.facts.commandFacts.length === 1 &&
+      observation.facts.commandFacts[0]?.status === "running" &&
+      observation.facts.commandFacts[0]?.durationMs === undefined,
+  );
+
+  const spec = {
+    id: "optional",
+    title: "t",
+    sections: [
+      {
+        kind: "table" as const,
+        source: "facts.commandFacts",
+        columns: [
+          { header: "took", cell: "{{vars.row.durationMs|duration}}" },
+          { header: "tool", cell: "{{vars.row.toolName}}" },
+        ],
+      },
+    ],
+  };
+  checkEqual(
+    "an absent optional field is not reported as a typo",
+    checkSpecTemplates(spec, context, { known }),
+    [],
+  );
+
+  const misspelled = {
+    ...spec,
+    sections: [{ ...spec.sections[0], columns: [{ header: "t", cell: "{{vars.row.toolNam}}" }] }],
+  };
+  checkEqual(
+    "a misspelled row field still is",
+    checkSpecTemplates(misspelled, context, { known }).length,
+    1,
+  );
+}
+
+{
+  // `live.elapsedSeconds` is derived by `withLive`, so it is real with an empty
+  // `live` — the exact case that made the live report report two false alarms.
+  const s = session();
+  s.agentStart();
+  s.command("ls", 0);
+  s.agentEnd("completed");
+  const observation = observe(s.events)!;
+  const known = knownFieldFor();
+  check("a derived live field is known", known("live.elapsedSeconds", undefined));
+  check("a made-up live field is not", !known("live.elapsedSecondz", undefined));
+  check(
+    "the live spec's stats resolve",
+    checkSpecTemplates(LIVE_REPORT, { facts: observation.facts, live: {}, vars: {} }, { known }).length === 0,
+  );
+}
+
+{
+  // A section with no rows renders its `empty` text, so its templates never run
+  // and cannot be wrong. Reporting them would be noise on an empty run.
+  const s = session();
+  s.agentStart();
+  s.agentEnd("completed");
+  const observation = observe(s.events)!;
+  const spec = {
+    id: "empty",
+    title: "t",
+    sections: [
+      {
+        kind: "table" as const,
+        source: "facts.commandFacts",
+        columns: [{ header: "c", cell: "{{vars.row.command}}" }],
+        empty: "none",
+      },
+    ],
+  };
+  checkEqual(
+    "a section with no rows reports nothing",
+    checkSpecTemplates(spec, { facts: observation.facts, live: {}, vars: {} }),
+    [],
+  );
+}
+
+{
+  // A filter decides which row is "first", so the check reads a *kept* row.
+  const s = session();
+  s.agentStart();
+  s.write("src/a.ts", "x");
+  s.write("company/b.ts", "y");
+  s.agentEnd("completed");
+  const observation = observe(s.events)!;
+  const spec = {
+    id: "filtered",
+    title: "t",
+    sections: [
+      {
+        kind: "list" as const,
+        source: "facts.files.byPath",
+        filter: { conditions: [{ field: "path", op: "glob" as const, value: "company/**" }] },
+        item: "{{vars.row.path}}",
+      },
+    ],
+  };
+  checkEqual(
+    "a filtered section checks a kept row",
+    checkSpecTemplates(spec, { facts: observation.facts, live: {}, vars: {} }),
+    [],
+  );
 }
 
 section("report: validating a spec");

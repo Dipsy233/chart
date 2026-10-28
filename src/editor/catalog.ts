@@ -52,13 +52,21 @@ export const FACT_FIELDS: FieldInfo[] = [
     { path: "command", kind: "string", label: "command text" },
     { path: "exitCode", kind: "number", label: "exit code" },
     { path: "status", kind: "string", label: "status" },
-    { path: "durationMs", kind: "number", label: "took (ms)" },
+    { path: "durationMs", kind: "number", label: "took (ms)", optional: true },
     { path: "toolName", kind: "string", label: "tool" },
+    { path: "eventId", kind: "string", label: "event id" },
+    { path: "evidence", kind: "array", label: "event ids" },
   ] },
   { path: "facts.commandFacts", kind: "array", label: "every command", element: [
     { path: "command", kind: "string", label: "command text" },
     { path: "status", kind: "string", label: "status" },
     { path: "exitCode", kind: "number", label: "exit code" },
+    { path: "startedAt", kind: "dateTime", label: "started at", optional: true },
+    { path: "endedAt", kind: "dateTime", label: "ended at", optional: true },
+    { path: "durationMs", kind: "number", label: "took (ms)", optional: true, hint: "absent when the outcome came from a tool call with no start time" },
+    { path: "toolName", kind: "string", label: "tool" },
+    { path: "eventId", kind: "string", label: "event id" },
+    { path: "evidence", kind: "array", label: "event ids" },
   ] },
 
   { path: "facts.files.read", kind: "array", label: "files read" },
@@ -74,6 +82,9 @@ export const FACT_FIELDS: FieldInfo[] = [
     { path: "externalChange", kind: "boolean", label: "changed by something else" },
     { path: "additions", kind: "number", label: "lines added" },
     { path: "deletions", kind: "number", label: "lines removed" },
+    { path: "firstSeenAt", kind: "dateTime", label: "first seen" },
+    { path: "lastSeenAt", kind: "dateTime", label: "last seen" },
+    { path: "evidence", kind: "array", label: "event ids" },
   ] },
 
   { path: "facts.changes.additions", kind: "number", label: "lines added" },
@@ -87,16 +98,22 @@ export const FACT_FIELDS: FieldInfo[] = [
     { path: "name", kind: "string", label: "name" },
     { path: "pid", kind: "number", label: "pid" },
     { path: "commandLine", kind: "string", label: "command line" },
-    { path: "command", kind: "string", label: "the shell command that laid it" },
+    { path: "command", kind: "string", label: "the shell command that laid it", optional: true },
     { path: "kind", kind: "string", label: "primary or tool" },
+    { path: "kindReason", kind: "string", label: "why it was classified that way", optional: true },
+    { path: "startedAt", kind: "dateTime", label: "started at" },
+    { path: "exitedAt", kind: "dateTime", label: "exited at", optional: true },
+    { path: "children", kind: "number", label: "child processes" },
     { path: "lifetimeMs", kind: "number", label: "lived (ms), measured against the run end" },
     { path: "running", kind: "boolean", label: "still running" },
+    { path: "evidence", kind: "array", label: "event ids" },
   ] },
   { path: "facts.processes.runningAtEnd", kind: "array", label: "processes still running at the end", element: [
     { path: "name", kind: "string", label: "name" },
     { path: "pid", kind: "number", label: "pid" },
     { path: "commandLine", kind: "string", label: "command line" },
     { path: "lifetimeMs", kind: "number", label: "lived (ms)" },
+    { path: "evidence", kind: "array", label: "event ids" },
   ] },
   { path: "facts.processes.tools", kind: "number", label: "helper processes folded away" },
 
@@ -123,15 +140,25 @@ export const FACT_FIELDS: FieldInfo[] = [
 
   { path: "facts.mcp.calls", kind: "number", label: "MCP calls" },
   { path: "facts.mcp.failed", kind: "number", label: "MCP calls that failed" },
+  { path: "facts.mcp.servers", kind: "object", label: "MCP usage per server", element: [
+    { path: "server", kind: "string", label: "server" },
+    { path: "calls", kind: "number", label: "calls" },
+    { path: "failed", kind: "number", label: "failed calls" },
+    { path: "tools", kind: "array", label: "tools used" },
+    { path: "evidence", kind: "array", label: "event ids" },
+  ] },
   { path: "facts.knowledge.reads", kind: "array", label: "what the agent read", element: [
     { path: "path", kind: "string", label: "path" },
     { path: "startLine", kind: "number", label: "first line" },
     { path: "endLine", kind: "number", label: "last line" },
+    { path: "evidence", kind: "array", label: "event ids" },
   ] },
   { path: "facts.knowledge.searches", kind: "array", label: "what the agent searched", element: [
     { path: "tool", kind: "string", label: "tool" },
     { path: "query", kind: "string", label: "query" },
+    { path: "scope", kind: "string", label: "scope", optional: true },
     { path: "matches", kind: "number", label: "hits" },
+    { path: "evidence", kind: "array", label: "event ids" },
   ] },
 
   { path: "facts.response", kind: "string", label: "the agent's last reply" },
@@ -334,3 +361,38 @@ export function fieldFor(path: string): FieldInfo | undefined {
   const info = allFields().find((field) => field.path === parent);
   return info?.element?.find((field) => field.path === path.split(".").pop());
 }
+
+/**
+ * The fields an element of a `source` array has, for a report row template.
+ *
+ * `{{vars.row.path}}` is only meaningful when the source's elements *have* a
+ * `path`, and that depends on the source: `facts.files.byPath` has one per path,
+ * `facts.files.created` is a list of strings. A report editor can therefore tell
+ * a typo from an absent value without running the report.
+ *
+ * Returns `undefined` when the source is not a known array (a custom host path),
+ * which means "cannot say" rather than "wrong".
+ */
+export function sourceFields(source: string): FieldInfo[] | undefined {
+  if (!source.startsWith("facts.") && !source.startsWith("live.")) return undefined;
+  const info = allFields().find((field) => field.path === source);
+  if (!info) return undefined;
+  // A list of bare strings: the only template that works is `{{vars.row}}`.
+  if (info.kind === "array" && !info.element) return [];
+  return info.element ?? [];
+}
+
+/** Whether a `source` is an array of bare strings rather than of objects. */
+export function sourceIsScalarArray(source: string): boolean {
+  const fields = sourceFields(source);
+  return fields !== undefined && fields.length === 0;
+}
+
+/**
+ * The `vars.*` names every report may use, regardless of section.
+ *
+ * `vars.outcome` and `vars.headline` are computed by the renderer; `vars.row` is
+ * bound per element. Anything else is a typo (or a rule-only name such as
+ * `vars.window`, which a report template cannot see).
+ */
+export const REPORT_VARS = ["outcome", "headline", "row"] as const;

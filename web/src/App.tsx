@@ -27,6 +27,7 @@ import {
   serializePack,
   upsertRule,
   validatePack,
+  validateSpec,
   type ChartEvent,
   type PackSummary,
   type Rule,
@@ -37,6 +38,7 @@ import {
   activeReportName,
   downloadReport,
   listReports,
+  parseSpec,
   readReport,
   removeReport,
   saveReport,
@@ -97,44 +99,61 @@ function packNameProblem(name: string, taken: readonly string[], allowExisting: 
   return undefined;
 }
 
-/** One row in the report list: the dot is the switch, the row opens it. */
+/**
+ * One row in the report list.
+ *
+ * The same markup the pack column uses — the dot is the switch, the row opens
+ * the document — because they are the same interaction on a different kind of
+ * file. The first version of this row put two lines inside `.pack-name`, which is
+ * a single-line ellipsis box, so the label and its hint overlapped and the row
+ * read as broken.
+ */
 function ReportRow({
   label,
+  count,
   hint,
   active,
   selected,
-  sections,
   issues,
   onSelect,
   onActivate,
   onDelete,
 }: {
-  name: string;
   label: string;
+  count: number;
   hint?: string;
   active: boolean;
   selected: boolean;
-  sections: number;
   issues?: number;
   onSelect: () => void;
   onActivate: () => void;
   onDelete?: () => void;
 }) {
   return (
-    <div className={`pack-row${selected ? " sel" : ""}`}>
+    <div className={`pack-row${selected ? " sel" : ""}`} onClick={onSelect} title={hint ?? label}>
       <button
+        type="button"
         className={`pack-dot${active ? " on" : ""}`}
-        onClick={onActivate}
-        title={active ? "这份报告正在生效" : "设为生效"}
-        aria-label={active ? "正在生效" : "设为生效"}
+        aria-pressed={active}
+        aria-label={active ? `${label} 已是生效报告` : `把 ${label} 设为生效报告`}
+        title={active ? "当前生效的报告" : "点一下设为生效"}
+        onClick={(event) => {
+          event.stopPropagation();
+          onActivate();
+        }}
       />
-      <button className="pack-name" onClick={onSelect} title={hint}>
-        <span className="pack-label">{label}</span>
-        <span className="tiny muted">{hint ?? `${sections} 个区块`}</span>
-      </button>
-      {issues ? <span className="pack-badge high">{issues}</span> : null}
+      <span className="pack-name">{label}</span>
+      {issues ? <span className="pack-bad" title={`${issues} 处问题`}>!</span> : null}
+      <span className="pack-count">{count}</span>
       {onDelete ? (
-        <button className="btn tiny ghost" onClick={onDelete} title="删除这份报告">
+        <button
+          className="btn tiny ghost danger"
+          title="删除这份报告"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+        >
           ✕
         </button>
       ) : null}
@@ -165,6 +184,8 @@ export function App() {
   });
   const [reportPrompt, setReportPrompt] = useState<{ kind: "create"; from: ReportSpec } | undefined>(undefined);
   const [reportToDelete, setReportToDelete] = useState<string | undefined>(undefined);
+  const [reportJsonOpen, setReportJsonOpen] = useState(false);
+  const reportInput = useRef<HTMLInputElement>(null);
 
   const [demoId, setDemoId] = useState(DEMOS[0]!.id);
   const [userSessions, setUserSessions] = useState<StoredSession[]>(() => loadUserSessions());
@@ -774,51 +795,94 @@ export function App() {
                 ＋新建
               </button>
             </div>
-            <div className="pane-body stack" style={{ gap: 4 }}>
+            <div className="pane-body stack" style={{ gap: 3 }}>
               <ReportRow
-                name="@default"
                 label="内置报告"
                 hint="编辑器自带的这一份"
+                count={ZH_REPORT.sections.length}
                 active={reportName === undefined || reportName === "@default"}
                 selected={reportName === undefined || reportName === "@default"}
-                sections={ZH_REPORT.sections.length}
                 onSelect={() => openReport("@default")}
                 onActivate={() => activateReport("@default")}
               />
               <ReportRow
-                name="@classic"
                 label="原始报告"
                 hint="Absence 的旧版布局，已写成数据"
+                count={CLASSIC_REPORT.sections.length}
                 active={false}
                 selected={reportName === "@classic"}
-                sections={CLASSIC_REPORT.sections.length}
                 onSelect={() => openReport("@classic")}
                 onActivate={() => activateReport("@classic")}
               />
               {reports.map((report) => (
                 <ReportRow
                   key={report.name}
-                  name={report.name}
-                  label={report.title || report.name}
-                  hint={report.issues.length > 0 ? `${report.issues.length} 处问题` : `${report.sections} 个区块`}
+                  label={report.name}
+                  hint={report.title || report.name}
+                  count={report.sections}
                   active={report.active}
                   selected={reportName === report.name}
                   issues={report.issues.length}
-                  sections={report.sections}
                   onSelect={() => openReport(report.name)}
                   onActivate={() => activateReport(report.name)}
                   onDelete={() => setReportToDelete(report.name)}
                 />
               ))}
-              {reportName && !builtInReport(reportName) ? (
+              {reports.length === 0 ? (
+                <div className="zh-hint" style={{ marginTop: 6 }}>
+                  还没有自己的报告。「＋新建」会把当前这份复制成一份可编辑的副本。
+                </div>
+              ) : null}
+
+              <div className="pack-actions">
                 <button
                   className="btn tiny"
-                  onClick={() => downloadReport(reportName, reportSpec)}
-                  title="下载成 JSON，可以发给别人"
+                  onClick={() => setReportJsonOpen(true)}
+                  title="把整份报告作为 JSON 查看 / 复制 / 粘贴导入"
                 >
-                  下载这份报告
+                  {"{ }"} 报告 JSON
                 </button>
-              ) : null}
+                <button
+                  className="btn tiny"
+                  onClick={() => reportInput.current?.click()}
+                  title="从文件导入一份报告"
+                >
+                  导入文件
+                </button>
+                {reportName && !builtInReport(reportName) ? (
+                  <button
+                    className="btn tiny"
+                    onClick={() => downloadReport(reportName, reportSpec)}
+                    title="下载成 JSON 文件"
+                  >
+                    下载
+                  </button>
+                ) : null}
+              </div>
+              <input
+                ref={reportInput}
+                type="file"
+                accept=".json"
+                style={{ display: "none" }}
+                onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (!file) return;
+                  try {
+                    const spec = parseSpec(await file.text());
+                    const issues = validateSpec(spec);
+                    if (issues.length > 0) {
+                      notify(`这份报告有 ${issues.length} 处问题：${issues[0]?.path} ${issues[0]?.message}`, "error");
+                      return;
+                    }
+                    const name = file.name.replace(/\.json$/i, "");
+                    setReportPrompt({ kind: "create", from: spec });
+                    notify(`已读取「${name}」，给它一个名字`);
+                  } catch (error) {
+                    notify(error instanceof Error ? error.message : String(error), "error");
+                  }
+                }}
+              />
             </div>
           </div>
 
@@ -871,6 +935,43 @@ export function App() {
             ))}
           </div>
         </div>
+      ) : null}
+
+      {reportJsonOpen ? (
+        <JsonDialog
+          title={
+            reportName && !builtInReport(reportName)
+              ? `报告「${reportName}」`
+              : "内置报告"
+          }
+          subtitle={`${reportSpec.sections.length} 个区块${
+            reportName && !builtInReport(reportName) ? "" : " · 只读，应用会先复制成一份新的报告"
+          }`}
+          value={reportSpec}
+          onClose={() => setReportJsonOpen(false)}
+          onCopied={(ok) => notify(ok ? "已复制报告 JSON" : "复制失败，请手动选择文本", ok ? "info" : "error")}
+          onApply={(parsed) => {
+            const spec = parsed as ReportSpec;
+            const issues = validateSpec(spec);
+            if (issues.length > 0) {
+              notify(`这份报告有 ${issues.length} 处问题，已拒绝应用：${issues[0]?.path}`, "error");
+              return;
+            }
+            if (!reportName || builtInReport(reportName)) {
+              setReportPrompt({ kind: "create", from: spec });
+              return;
+            }
+            const saveIssues = saveReport(reportName, spec);
+            if (saveIssues.length > 0) {
+              notify(`${saveIssues.length} 处问题：${saveIssues[0]}`, "error");
+              return;
+            }
+            setReportSpec(spec);
+            setReports(listReports());
+            notify(`已应用到「${reportName}」`);
+            setReportJsonOpen(false);
+          }}
+        />
       ) : null}
 
       {packJsonOpen ? (

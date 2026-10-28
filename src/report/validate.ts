@@ -14,8 +14,10 @@
  */
 
 import type { ReportSection, ReportSpec } from "./spec.ts";
-import { validateWhen } from "../regimen/predicate.ts";
+import { matches, resolvePath, validateWhen, type When } from "../regimen/predicate.ts";
+import { checkTemplate, type TemplateContext, type TemplateIssue } from "../regimen/template.ts";
 import { LEVELS } from "../core/types.ts";
+import { LIVE_FIELDS, REPORT_VARS, allFields, sourceFields } from "../editor/catalog.ts";
 
 export interface SpecIssue {
   /** Index into `spec.sections`, when the problem is inside one. */
@@ -23,6 +25,12 @@ export interface SpecIssue {
   /** A path into the spec, e.g. `sections[2].columns[0].cell`. */
   path: string;
   message: string;
+}
+
+/** A template that does not resolve, with the spec path that holds it. */
+export interface TemplateIssueAt extends TemplateIssue {
+  /** A path into the spec, e.g. `sections[2].columns[0].cell`. */
+  path: string;
 }
 
 const KINDS = ["header", "verdict", "findings", "stats", "table", "list", "text", "timeline", "evidence"];
@@ -190,4 +198,175 @@ function validateSection(section: ReportSection, index: number): SpecIssue[] {
   }
 
   return issues;
+}
+
+/* ── Template resolution, against real data ─────────────────────────────── */
+
+/**
+ * Check every template in a spec against a context that actually holds data.
+ *
+ * `validateSpec` is structural: it proves the shape is renderable, not that a
+ * path resolves. This is the other half, and it is the one a *user* sees —
+ * `{{facts.commands.faild}}` is a well-formed section that renders an empty
+ * string forever.
+ *
+ * The subtlety that made the first version of this wrong: a `table`/`list`/`text`
+ * template is rendered **once per row**, with `vars.row` bound to that element.
+ * Checking it with `vars.row = {}` reports every single `{{vars.row.…}}` as
+ * unresolved — 22 false alarms on the shipped spec. So the check binds
+ * `vars.row` to the section's *first actual row*, which is exactly the context
+ * the renderer will use. A section with no rows has nothing to check: there is
+ * no row, so there is no template to be wrong about.
+ *
+ * `filter` is applied first, because the row the renderer sees is a *kept* row.
+ */
+export interface TemplateCheckOptions {
+  /** Resolve a `source` path yourself, when the caller has a richer context. */
+  resolve?: (path: string) => unknown;
+  /**
+   * Whether a field path is *real*, regardless of whether it has a value here.
+   *
+   * This is what separates "you typed the name wrong" from "this row happens not
+   * to have that field". `durationMs` is optional on a command and
+   * `live.elapsedSeconds` is derived from the clock, so both are legitimately
+   * absent — reporting them as typos would be 22 false alarms on the shipped
+   * spec, which is exactly what happened.
+   *
+   * The section's `source` is passed because `vars.row.x` depends on it:
+   * `facts.commandFacts` elements have `command`, `facts.files.byPath` elements
+   * have `path`. Pass `knownFieldFor` from `validate.ts` to get the catalogue's
+   * answer.
+   */
+  known?: (path: string, source: string | undefined) => boolean;
+}
+
+export function checkSpecTemplates(
+  spec: ReportSpec,
+  context: TemplateContext,
+  options: TemplateCheckOptions = {},
+): TemplateIssueAt[] {
+  const out: TemplateIssueAt[] = [];
+  const issues = (template: string | undefined, path: string, row?: unknown, source?: string) => {
+    if (template === undefined || template === "") return;
+    const at: TemplateContext = row === undefined
+      ? context
+      : { ...context, vars: { ...(context.vars ?? {}), row } };
+    for (const issue of checkTemplate(template, at)) {
+      // A path the schema knows is not a typo, even when this particular row has
+      // no value for it.
+      if (options.known?.(issue.path, source)) continue;
+      out.push({ ...issue, path });
+    }
+  };
+
+  issues(spec.title, "title");
+
+  spec.sections.forEach((section, index) => {
+    const base = `sections[${index}]`;
+    if ("title" in section) issues(section.title, `${base}.title`);
+    if (section.kind === "header") issues(section.subtitle, `${base}.subtitle`);
+
+    if (section.kind === "stats") {
+      section.rows.forEach((row, rowIndex) => issues(row.value, `${base}.rows[${rowIndex}].value`));
+    }
+
+    if (section.kind === "table" || section.kind === "list" || section.kind === "text") {
+      const first = firstRow(section, context, options.resolve);
+      // No row means the section renders its `empty` text and no template runs.
+      if (first === undefined) return;
+      const source = section.source;
+      if (section.kind === "table") {
+        section.columns.forEach((column, columnIndex) =>
+          issues(column.cell, `${base}.columns[${columnIndex}].cell`, first, source),
+        );
+      } else if (section.kind === "list") {
+        issues(section.item, `${base}.item`, first, source);
+      } else if (section.item) {
+        issues(section.item, `${base}.item`, first, source);
+      }
+    }
+  });
+
+  return out;
+}
+
+/** The first element a `table`/`list`/`text` section would render, or undefined. */
+function firstRow(
+  section: ReportSection,
+  context: TemplateContext,
+  resolve: ((path: string) => unknown) | undefined,
+): unknown {
+  if (!("source" in section)) return undefined;
+  const root = resolve
+    ? resolve(section.source)
+    : resolveSourcePath(section.source, context);
+  const list = Array.isArray(root)
+    ? root
+    : root && typeof root === "object"
+      ? Object.values(root as Record<string, unknown>)
+      : [];
+  const filter = "filter" in section ? section.filter : undefined;
+  const kept = filter ? list.filter((element) => matchesElement(filter, element)) : list;
+  return kept[0];
+}
+
+function resolveSourcePath(path: string, context: TemplateContext): unknown {
+  if (path.startsWith("facts.")) return resolvePath(context.facts, path.slice("facts.".length));
+  if (path.startsWith("live.")) return resolvePath(context.live, path.slice("live.".length));
+  if (path.startsWith("session.")) return resolvePath(context.session, path.slice("session.".length));
+  return resolvePath(context.facts, path);
+}
+
+/**
+ * The filter's answer for one element, without needing a full `EvalContext`.
+ * A spec filter may not contain a window or a sequence (validation rejects
+ * both), so `matches` never needs the event stream here.
+ */
+function matchesElement(filter: When, element: unknown): boolean {
+  return matches(filter, element);
+}
+
+/* ── A `known` predicate built from the catalogue ───────────────────────── */
+
+/**
+ * Answer "is this path a real field?" for a report template.
+ *
+ * Two different questions, and a template asks both:
+ *
+ *   `facts.commands.failed`        → a path in the catalogue (or `live.*`)
+ *   `vars.row.durationMs`          → a field on the *elements of this section's
+ *                                    source*, which is why the section is needed
+ *
+ * `live.elapsedSeconds` and `live.stalledSeconds` are derived by `withLive` and
+ * are therefore absent from a bare `live: {}` — but they are real, so they are
+ * listed here. Anything the catalogue does not know returns `undefined`, which
+ * the caller reads as "cannot say", never as "wrong".
+ */
+export function knownFieldFor(): (path: string, source: string | undefined) => boolean {
+  return (path: string, source: string | undefined): boolean => {
+    if (path.startsWith("vars.")) {
+      const rest = path.slice("vars.".length);
+      if (rest === "row") return true;
+      if (rest.startsWith("row.")) {
+        const field = rest.slice("row.".length).split(".")[0] ?? "";
+        if (source === undefined) return true;
+        const fields = sourceFields(source);
+        // An unknown source: cannot say. A known scalar array: `row` is a
+        // string, so any `row.<field>` is a mistake.
+        if (fields === undefined) return true;
+        return fields.some((info) => info.path === field);
+      }
+      return REPORT_VARS.includes(rest.split(".")[0] as (typeof REPORT_VARS)[number]);
+    }
+    if (path.startsWith("live.")) {
+      const rest = path.slice("live.".length);
+      const known = LIVE_FIELDS.some((info) => info.path === path);
+      // Derived by `withLive`, so they are real even with an empty `live`.
+      return known || rest === "elapsedSeconds" || rest === "stalledSeconds";
+    }
+    if (path.startsWith("facts.")) {
+      return allFields().some((info) => info.path === path);
+    }
+    return false;
+  };
 }

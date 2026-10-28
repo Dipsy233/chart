@@ -5,6 +5,12 @@
  * the event panel edits one run at a time, so both views start here. Nothing in
  * this column judges anything: it only says when a round started, how long it
  * took and how much happened.
+ *
+ * A run can be deleted, and the ✕ is on its card like every other list — but a
+ * run is a *slice of the stream*, not a record of its own, so deleting one
+ * removes its events. That is why it asks first: the caller confirms, because
+ * this is the only delete in the editor whose damage is measured in events
+ * rather than in a file the user wrote.
  */
 
 import type { ChartEvent } from "../../../src/core/events.ts";
@@ -18,6 +24,7 @@ export function RunList({
   selectedId,
   onSelect,
   all,
+  onDelete,
 }: {
   views: RunView[];
   events: readonly ChartEvent[];
@@ -27,6 +34,8 @@ export function RunList({
   all?: { selected: boolean; count: number; onSelect: () => void };
   /** The header ＋: open a new simulated run at the end of the stream. */
   onAddRun?: () => void;
+  /** Absent in the report view: a playback strip does not edit the record. */
+  onDelete?: (view: RunView) => void;
 }) {
   return (
     <div className="col runs-col">
@@ -59,20 +68,34 @@ export function RunList({
           const duration = runDuration(view.run, events);
           const tone = runStatusTone(view.run.status);
           return (
-            <button
-              key={view.run.id}
-              className={`run-card${view.run.id === selectedId ? " sel" : ""}`}
-              onClick={() => onSelect(view.run.id)}
-              title={`${view.run.id} · ${new Date(view.run.startedAt).toLocaleString()}`}
-            >
-              <span className="run-line">
-                <span className="run-name">第 {view.index + 1} 轮</span>
-                <span className={`chip ${tone}`}>{zhRunStatus(view.run.status)}</span>
-              </span>
-              <span className="run-meta">
-                {view.run.id} · {view.eventCount} 个事件 · {formatSpan(duration)}
-              </span>
-            </button>
+            <div key={view.run.id} className={`card run-card${view.run.id === selectedId ? " sel" : ""}`}>
+              <button
+                className="run-pick"
+                onClick={() => onSelect(view.run.id)}
+                title={`${view.run.id} · ${new Date(view.run.startedAt).toLocaleString()}`}
+              >
+                <span className="run-line">
+                  <span className="run-name">第 {view.index + 1} 轮</span>
+                  <span className={`chip ${tone}`}>{zhRunStatus(view.run.status)}</span>
+                </span>
+                <span className="run-meta">
+                  {view.run.id} · {view.eventCount} 个事件 · {formatSpan(duration)}
+                </span>
+              </button>
+              {onDelete ? (
+                <button
+                  type="button"
+                  className="card-del"
+                  title={`删除第 ${view.index + 1} 轮（${view.eventCount} 个事件）`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDelete(view);
+                  }}
+                >
+                  ✕
+                </button>
+              ) : null}
+            </div>
           );
         })}
 

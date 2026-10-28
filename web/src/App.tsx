@@ -49,7 +49,7 @@ import { CLASSIC_REPORT } from "../../src/report/classic.ts";
 import type { MetricsFrameLike } from "../../src/core/live.ts";
 import { DEMOS } from "./lib/demo.ts";
 import { newEvent, renumber } from "./lib/events.ts";
-import { pickRunView, runViews } from "./lib/runs.ts";
+import { pickRunView, runViews, type RunView } from "./lib/runs.ts";
 import { RULE_TEMPLATES } from "./lib/plain.ts";
 import { PackColumn } from "./components/PackColumn.tsx";
 import { SessionColumn, type Subject } from "./components/SessionColumn.tsx";
@@ -589,6 +589,25 @@ export function App() {
   };
 
   /** The header ＋ on the runs column: a new run grows from a user message. */
+  /**
+   * Delete a whole round.
+   *
+   * A run is a slice of the stream, not a record of its own — removing one
+   * removes every event in it, and there is no undo. So it asks first, and it is
+   * the one delete in this editor whose damage is counted in events rather than
+   * in a file the user wrote.
+   */
+  const [runToDelete, setRunToDelete] = useState<RunView | undefined>(undefined);
+  const deleteRun = (view: RunView) => {
+    const from = view.run.fromIndex;
+    const to = view.run.toIndex;
+    handleEventsChange(renumber(events.filter((_, index) => index < from || index > to)));
+    setRunId(undefined);
+    setSelectedEventIndex(undefined);
+    setRunToDelete(undefined);
+    notify(`已删除第 ${view.index + 1} 轮（${view.eventCount} 个事件）`);
+  };
+
   const addRun = () => {
     const last = events[events.length - 1]?.timestamp ?? Date.now() - 1000;
     const opener = newEvent("message", last + 1000, "simulated");
@@ -963,6 +982,7 @@ export function App() {
           onToggleAll={() => setAllEventsMode((current) => !current)}
           onSelectIndex={setSelectedEventIndex}
           onAddRun={addRun}
+          onDeleteRun={setRunToDelete}
           sessions={sessionColumn}
         />
       ) : null}
@@ -1158,6 +1178,16 @@ export function App() {
           detail="内置报告不受影响；删掉正在生效的那份会回到内置报告。"
           onConfirm={() => deleteReport(reportToDelete)}
           onClose={() => setReportToDelete(undefined)}
+        />
+      ) : null}
+
+      {runToDelete ? (
+        <ConfirmDialog
+          title="删除这一轮"
+          message={`确定删除第 ${runToDelete.index + 1} 轮吗？它的 ${runToDelete.eventCount} 个事件会一起删掉，不能撤销。`}
+          detail="轮次就是一段事件流 —— 删掉它等于删掉那一段。其他轮次不受影响。"
+          onConfirm={() => deleteRun(runToDelete)}
+          onClose={() => setRunToDelete(undefined)}
         />
       ) : null}
 

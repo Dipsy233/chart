@@ -32,6 +32,8 @@ export function EventStreamEditor({
   onSelectIndex,
   /** The header ＋ on the runs column: open a new simulated run. */
   onAddRun,
+  /** Delete a whole round: it asks first, because a run *is* its events. */
+  onDeleteRun,
   /** The 事件会话 column — what is being observed, rendered leftmost. */
   sessions,
 }: {
@@ -47,6 +49,7 @@ export function EventStreamEditor({
   /** The 事件会话 column — what is being observed, rendered leftmost. */
   sessions?: React.ReactNode;
   onAddRun?: () => void;
+  onDeleteRun?: (view: RunView) => void;
 }) {
   const [addType, setAddType] = useState<ChartEventType>("command");
   const selectedView = pickRunView(views, runId);
@@ -102,6 +105,7 @@ export function EventStreamEditor({
         onSelect={onSelectRun}
         all={{ selected: allMode, count: events.length, onSelect: onToggleAll }}
         onAddRun={onAddRun}
+        onDelete={onDeleteRun}
       />
 
       <EventCardList

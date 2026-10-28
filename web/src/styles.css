@@ -84,25 +84,31 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 }
 .session-card .session-pick:hover { border-color: var(--line2); background: var(--panel3); }
 .session-card.sel .session-pick { border-color: var(--green-dim); background: rgba(61, 255, 158, 0.07); box-shadow: inset 2px 0 0 var(--green); }
-/* The delete affordance, shared by every card list.
+/* The card's action button — the same *control* as the grip.
  *
- * One shape everywhere: a card's ✕ sits at its top-right, appears on hover (and
- * on focus, so it is reachable by keyboard), and never appears on a card that
- * cannot be deleted — the caller decides by passing `onDelete`.
+ * The grip is a bare glyph in a square hit area that colours on hover; delete is
+ * the same control with a different glyph and a different colour, so the two ends
+ * of a card read as a pair. No border, no background until you point at it.
+ *
+ * It sits at the top-right of the card and appears on hover (and on focus, so it
+ * is reachable by keyboard). A card that cannot be deleted simply has none — the
+ * caller decides by passing `onDelete`.
  */
 .card-del {
-  position: absolute; top: 4px; right: 4px; z-index: 2;
-  border: none; background: transparent; color: var(--dim);
-  font-size: 10px; line-height: 1; padding: 2px 4px; border-radius: 4px; cursor: pointer;
-  opacity: 0; transition: opacity 0.12s, color 0.12s;
+  position: absolute; top: 3px; right: 3px; z-index: 2;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; padding: 0;
+  border: none; border-radius: 4px; background: transparent;
+  color: var(--line2); font-family: var(--mono); font-size: 11px; line-height: 1;
+  cursor: pointer; opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
 }
-.card:hover .card-del, .card:focus-within .card-del, .card-del:focus-visible { opacity: 1; }
-.card-del:hover { color: var(--high); }
+.card:hover .card-del, .card:focus-within .card-del { opacity: 1; }
+.card-del:hover { color: var(--high); background: rgba(255, 95, 87, 0.1); }
 .card-del:focus-visible { outline: 1px solid var(--high); outline-offset: 1px; opacity: 1; }
 
-/* `card` is the shared marker; the three lists keep their own names for layout. */
-.session-card, .rule-card, .section-card, .event-card { position: relative; }
-.session-card:hover .card-del { opacity: 1; }
+/* `card` is the shared marker; each list keeps its own name for layout. */
+.session-card, .rule-card, .section-card, .event-card, .run-card { position: relative; }
 
 /* ── shell ─────────────────────────────────────────────────────────────── */
 
@@ -922,8 +928,22 @@ textarea.field { resize: vertical; min-height: 46px; line-height: 1.5; }
 .card-del.inline {
   position: static;
   flex: 0 0 auto;
-  opacity: 0.55;
-  font-size: 11px;
-  padding: 1px 3px;
+  opacity: 0.45;
+  width: 16px; height: 16px;
 }
 .pack-row:hover .card-del.inline { opacity: 1; }
+
+/* A run card is a wrapper so the ✕ can sit over the pick button, the way every
+   other card list does it. The pick button keeps the old `.run-card` look. */
+.run-card { padding: 0; border: none; background: transparent; }
+.run-card .run-pick {
+  display: flex; flex-direction: column; gap: 2px; text-align: left; width: 100%;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel2); padding: 7px 9px; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.run-card .run-pick:hover { border-color: var(--line2); background: var(--panel3); }
+.run-card.sel .run-pick {
+  border-color: var(--green-dim); background: rgba(61, 255, 158, 0.07);
+  box-shadow: inset 2px 0 0 var(--green);
+}

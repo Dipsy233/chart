@@ -3,7 +3,9 @@
  *
  * An event is a form, not a blob of JSON: the type, the time, and the payload
  * fields the catalogue says matter for that type. The raw payload stays one
- * disclosure away, for anything the form does not cover.
+ * disclosure away, for anything the form does not cover. Reordering lives on
+ * the cards' drag grip — a ±1 pair of buttons here could not agree with the
+ * scope filter about what "one position" means.
  *
  * No judgement appears here. Facts and findings belong to the report panel; this
  * panel is only about the record itself.
@@ -74,16 +76,6 @@ export function EventDetail({
     onSelect(index + 1);
   };
 
-  const move = (direction: -1 | 1) => {
-    const target = index + direction;
-    if (target < 0 || target >= events.length) return;
-    const copy = [...events];
-    const [moved] = copy.splice(index, 1);
-    copy.splice(target, 0, moved!);
-    onChange(copy);
-    onSelect(target);
-  };
-
   const first = events[0]?.timestamp ?? event.timestamp;
 
   return (
@@ -94,12 +86,6 @@ export function EventDetail({
         <span className="tiny muted">
           第 {(position?.index ?? index) + 1} / {position?.total ?? events.length} 个
         </span>
-        <button className="btn tiny" onClick={() => move(-1)} disabled={index === 0} title="和上一个事件交换位置">
-          ↑
-        </button>
-        <button className="btn tiny" onClick={() => move(1)} disabled={index === events.length - 1} title="和下一个事件交换位置">
-          ↓
-        </button>
         <button className="btn tiny" onClick={duplicate} title="复制这个事件">
           复制
         </button>

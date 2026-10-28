@@ -27,6 +27,7 @@ import type { PackSummary } from "../../../src/store/packStore.ts";
 import { observeRun, report, phaseOf } from "../../../src/index.ts";
 import { frameAt, pickRunView, zhRunStatus, type RunView } from "../lib/runs.ts";
 import { ZH_REPORT } from "../lib/reports.ts";
+import type { ReportSpec } from "../../../src/report/spec.ts";
 import { eventSummary } from "../lib/events.ts";
 import { zhEventLabel, zhLevel } from "../lib/plain.ts";
 import { EventCardList } from "./EventCardList.tsx";
@@ -45,6 +46,7 @@ export function ReportView({
   packs,
   packName,
   metrics,
+  spec,
   onSelectRun,
   onSelectPack,
   onActivatePack,
@@ -63,6 +65,8 @@ export function ReportView({
   pack: RulePack;
   packs: PackSummary[];
   packName: string | undefined;
+  /** The report spec to render. Defaults to the editor's own Chinese spec. */
+  spec?: ReportSpec;
   /** The session's resource samples, if the host has a sampler. */
   metrics?: readonly MetricsFrameLike[];
   onSelectRun: (id: string) => void;
@@ -113,9 +117,9 @@ export function ReportView({
       // resources of that moment — not the newest sample of the session.
       live: { nowMs: frame.anchor, metrics: metrics ? metricsAt(metrics, frame.anchor) : undefined },
     });
-    const rendered = report(observation, ZH_REPORT, { nowMs: frame.anchor });
+    const rendered = report(observation, spec ?? ZH_REPORT, { nowMs: frame.anchor });
     return { frame, observation, rendered };
-  }, [events, view, cursor, pack, metrics]);
+  }, [events, view, cursor, pack, metrics, spec]);
 
   const seekTo = (globalIndex: number) => {
     if (!view) return;

@@ -33,6 +33,19 @@ import {
   type RulePack,
 } from "../../src/index.ts";
 import { adaptivePackIO, backendKind, downloadPack, loadUserSessions, saveUserSessions, type StoredSession, type Backend } from "./lib/storage.ts";
+import {
+  activeReportName,
+  downloadReport,
+  listReports,
+  readReport,
+  removeReport,
+  saveReport,
+  setActiveReport,
+  type ReportSummary,
+} from "./lib/storage.ts";
+import type { ReportSpec } from "../../src/report/spec.ts";
+import { ZH_REPORT } from "./lib/reports.ts";
+import { CLASSIC_REPORT } from "../../src/report/classic.ts";
 import type { MetricsFrameLike } from "../../src/core/live.ts";
 import { DEMOS } from "./lib/demo.ts";
 import { newEvent, renumber } from "./lib/events.ts";
@@ -46,11 +59,12 @@ import { JsonDialog } from "./components/JsonDialog.tsx";
 import { RuleCardList } from "./components/RuleCardList.tsx";
 import { RuleEditor } from "./components/RuleEditor.tsx";
 import { ReportView } from "./components/ReportView.tsx";
+import { ReportEditor } from "./components/ReportEditor.tsx";
 import { EventStreamEditor } from "./components/EventStreamEditor.tsx";
 
 const store = new PackStore(adaptivePackIO(), DEFAULT_PACK);
 
-type View = "report" | "rules" | "events";
+type View = "report" | "rules" | "reports" | "events";
 
 /** Which name dialog is open, and what to do with the answer. */
 type PackPrompt =
@@ -83,12 +97,74 @@ function packNameProblem(name: string, taken: readonly string[], allowExisting: 
   return undefined;
 }
 
+/** One row in the report list: the dot is the switch, the row opens it. */
+function ReportRow({
+  label,
+  hint,
+  active,
+  selected,
+  sections,
+  issues,
+  onSelect,
+  onActivate,
+  onDelete,
+}: {
+  name: string;
+  label: string;
+  hint?: string;
+  active: boolean;
+  selected: boolean;
+  sections: number;
+  issues?: number;
+  onSelect: () => void;
+  onActivate: () => void;
+  onDelete?: () => void;
+}) {
+  return (
+    <div className={`pack-row${selected ? " sel" : ""}`}>
+      <button
+        className={`pack-dot${active ? " on" : ""}`}
+        onClick={onActivate}
+        title={active ? "这份报告正在生效" : "设为生效"}
+        aria-label={active ? "正在生效" : "设为生效"}
+      />
+      <button className="pack-name" onClick={onSelect} title={hint}>
+        <span className="pack-label">{label}</span>
+        <span className="tiny muted">{hint ?? `${sections} 个区块`}</span>
+      </button>
+      {issues ? <span className="pack-badge high">{issues}</span> : null}
+      {onDelete ? (
+        <button className="btn tiny ghost" onClick={onDelete} title="删除这份报告">
+          ✕
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export function App() {
   const [view, setView] = useState<View>("report");
   const [packs, setPacks] = useState<PackSummary[]>([]);
   const [packName, setPackName] = useState<string | undefined>(undefined);
   const [pack, setPack] = useState<RulePack>(DEFAULT_PACK);
   const [selectedRuleId, setSelectedRuleId] = useState<string | undefined>(undefined);
+
+  /* ── report specs ───────────────────────────────────────────
+   *
+   * A report is data (docs/REPORTS.md), so "customise the report" is a storage
+   * question. The built-in entries are read-only: `ZH_REPORT` is what the editor
+   * ships, `CLASSIC_REPORT` is the original Absence layout expressed as a spec.
+   * Editing either forks it into a named spec first, the same way the built-in
+   * rule packs fork.
+   */
+  const [reports, setReports] = useState<ReportSummary[]>(() => listReports());
+  const [reportName, setReportName] = useState<string | undefined>(() => activeReportName());
+  const [reportSpec, setReportSpec] = useState<ReportSpec>(() => {
+    const active = activeReportName();
+    return (active ? readReport(active) : undefined) ?? ZH_REPORT;
+  });
+  const [reportPrompt, setReportPrompt] = useState<{ kind: "create"; from: ReportSpec } | undefined>(undefined);
+  const [reportToDelete, setReportToDelete] = useState<string | undefined>(undefined);
 
   const [demoId, setDemoId] = useState(DEMOS[0]!.id);
   const [userSessions, setUserSessions] = useState<StoredSession[]>(() => loadUserSessions());
@@ -201,6 +277,100 @@ export function App() {
     },
     [pack, packName, persist],
   );
+
+  /* ── reports ────────────────────────────────────────────── */
+
+  /** Which built-in spec a name refers to, if any. */
+  const builtInReport = (name: string | undefined): ReportSpec | undefined =>
+    name === "@classic" ? CLASSIC_REPORT : name === undefined || name === "@default" ? ZH_REPORT : undefined;
+
+  /** Switch the report the report view renders. */
+  const openReport = (name: string | undefined) => {
+    const builtIn = builtInReport(name);
+    if (builtIn) {
+      setReportName(name);
+      setReportSpec(builtIn);
+      return;
+    }
+    const stored = name ? readReport(name) : undefined;
+    if (!stored) {
+      notify(`找不到报告「${name}」`, "error");
+      return;
+    }
+    setReportName(name);
+    setReportSpec(stored);
+  };
+
+  /**
+   * Persist a spec edit.
+   *
+   * A built-in spec is not a file, so an edit forks it: the dialog asks for a
+   * name, and the copy becomes the active report. That is the same rule the
+   * rule packs follow, for the same reason — a user cannot lose a shipped
+   * document by editing it.
+   */
+  const persistReport = (spec: ReportSpec) => {
+    if (builtInReport(reportName)) {
+      setReportPrompt({ kind: "create", from: spec });
+      return;
+    }
+    if (!reportName) return;
+    const issues = saveReport(reportName, spec);
+    if (issues.length > 0) {
+      notify(`${issues.length} 处问题，已拒绝保存：${issues[0]}`, "error");
+      return;
+    }
+    setReportSpec(spec);
+    setReports(listReports());
+  };
+
+  const createReport = (name: string, from: ReportSpec) => {
+    const spec: ReportSpec = { ...structuredClone(from), id: name };
+    const issues = saveReport(name, spec);
+    if (issues.length > 0) {
+      notify(`${issues.length} 处问题：${issues[0]}`, "error");
+      return;
+    }
+    setActiveReport(name);
+    setReportName(name);
+    setReportSpec(spec);
+    setReports(listReports());
+    setReportPrompt(undefined);
+    notify(`已新建报告「${name}」`);
+  };
+
+  const activateReport = (name: string | undefined) => {
+    const builtIn = builtInReport(name);
+    if (builtIn) {
+      setActiveReport(undefined);
+      setReportName(name);
+      setReportSpec(builtIn);
+    } else if (name) {
+      const stored = readReport(name);
+      if (!stored) return;
+      setActiveReport(name);
+      setReportName(name);
+      setReportSpec(stored);
+    }
+    setReports(listReports());
+  };
+
+  const deleteReport = (name: string) => {
+    removeReport(name);
+    setReports(listReports());
+    setReportToDelete(undefined);
+    if (reportName === name) activateReport(undefined);
+    notify(`已删除报告「${name}」`);
+  };
+
+  /** A name that does not collide with a stored spec or a built-in. */
+  const freeReportName = (base = "my-report") => {
+    const taken = new Set(reports.map((report) => report.name));
+    if (!taken.has(base)) return base;
+    let counter = 2;
+    while (taken.has(`${base}-${counter}`)) counter += 1;
+    return `${base}-${counter}`;
+  };
 
   /* ── packs ──────────────────────────────────────────────── */
 
@@ -473,6 +643,9 @@ export function App() {
           <button className={view === "rules" ? "on" : ""} onClick={() => setView("rules")}>
             规则编辑
           </button>
+          <button className={view === "reports" ? "on" : ""} onClick={() => setView("reports")}>
+            报告编辑
+          </button>
           <button className={view === "events" ? "on" : ""} onClick={() => setView("events")}>
             事件流
           </button>
@@ -493,6 +666,7 @@ export function App() {
         packs={packs}
         packName={packName}
         metrics={metrics}
+        spec={reportSpec}
         sessions={sessionColumn}
         onSelectRun={setRunId}
         onSelectPack={(name) => void openPack(name)}
@@ -582,6 +756,82 @@ export function App() {
               </div>
             </div>
           )}
+        </div>
+      ) : null}
+
+      {/* ══ 报告编辑 ═════════════════════════════════════════ */}
+      {view === "reports" ? (
+        <div className="view reports">
+          <div className="col reports-col">
+            <div className="pane-head">
+              <span>报告 reports</span>
+              <span className="spacer" />
+              <button
+                className="btn tiny"
+                onClick={() => setReportPrompt({ kind: "create", from: reportSpec })}
+                title="把现在看到的报告复制成一份可编辑的"
+              >
+                ＋新建
+              </button>
+            </div>
+            <div className="pane-body stack" style={{ gap: 4 }}>
+              <ReportRow
+                name="@default"
+                label="内置报告"
+                hint="编辑器自带的这一份"
+                active={reportName === undefined || reportName === "@default"}
+                selected={reportName === undefined || reportName === "@default"}
+                sections={ZH_REPORT.sections.length}
+                onSelect={() => openReport("@default")}
+                onActivate={() => activateReport("@default")}
+              />
+              <ReportRow
+                name="@classic"
+                label="原始报告"
+                hint="Absence 的旧版布局，已写成数据"
+                active={false}
+                selected={reportName === "@classic"}
+                sections={CLASSIC_REPORT.sections.length}
+                onSelect={() => openReport("@classic")}
+                onActivate={() => activateReport("@classic")}
+              />
+              {reports.map((report) => (
+                <ReportRow
+                  key={report.name}
+                  name={report.name}
+                  label={report.title || report.name}
+                  hint={report.issues.length > 0 ? `${report.issues.length} 处问题` : `${report.sections} 个区块`}
+                  active={report.active}
+                  selected={reportName === report.name}
+                  issues={report.issues.length}
+                  sections={report.sections}
+                  onSelect={() => openReport(report.name)}
+                  onActivate={() => activateReport(report.name)}
+                  onDelete={() => setReportToDelete(report.name)}
+                />
+              ))}
+              {reportName && !builtInReport(reportName) ? (
+                <button
+                  className="btn tiny"
+                  onClick={() => downloadReport(reportName, reportSpec)}
+                  title="下载成 JSON，可以发给别人"
+                >
+                  下载这份报告
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <ReportEditor
+            spec={reportSpec}
+            events={events}
+            runId={selectedView?.run.id}
+            pack={pack}
+            readOnly={builtInReport(reportName) !== undefined}
+            onChange={persistReport}
+            onOpenReport={() => setView("report")}
+            onNotify={notify}
+          />
         </div>
       ) : null}
 
@@ -732,6 +982,36 @@ export function App() {
           detail="内置演示会话不受影响；从 Absence 导入的副本已经独立，删了也不会影响 Absence。"
           onConfirm={() => deleteSession(sessionToDelete)}
           onClose={() => setSessionToDelete(undefined)}
+        />
+      ) : null}
+
+      {reportPrompt ? (
+        <PromptDialog
+          title="＋ 新建报告"
+          subtitle="会把你现在看到的区块（包括顺序）复制成一份可编辑的报告，并设为生效。"
+          label="报告名字"
+          placeholder="my-report"
+          initialValue={freeReportName()}
+          validate={(value) => {
+            if (value === "") return "名字不能为空";
+            if (!PACK_NAME_RE.test(value)) return "只能用字母、数字、. - _，最多 64 个字符";
+            if (reports.some((report) => report.name === value)) return `已经有名为「${value}」的报告了`;
+            return undefined;
+          }}
+          hint="不能和已有的报告重名。内置报告不会被改动。"
+          confirmText="新建"
+          onConfirm={(name) => createReport(name, reportPrompt.from)}
+          onClose={() => setReportPrompt(undefined)}
+        />
+      ) : null}
+
+      {reportToDelete ? (
+        <ConfirmDialog
+          title="删除报告"
+          message={`确定删除报告「${reportToDelete}」吗？它的区块会一起删掉，不能撤销。`}
+          detail="内置报告不受影响；删掉正在生效的那份会回到内置报告。"
+          onConfirm={() => deleteReport(reportToDelete)}
+          onClose={() => setReportToDelete(undefined)}
         />
       ) : null}
 

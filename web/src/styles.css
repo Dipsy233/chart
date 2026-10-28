@@ -882,3 +882,16 @@ textarea.field { resize: vertical; min-height: 46px; line-height: 1.5; }
   font-size: 11.5px; color: var(--dim); line-height: 1.5;
 }
 .chip.off { color: var(--dim); border-color: var(--line); }
+
+/* ── the report editor ──────────────────────────────────────────────────── */
+
+/* sections | the section | the preview — the same shape as the rule view */
+.view.reports { grid-template-columns: 214px 400px minmax(0, 1fr); }
+.reports-col { background: var(--panel); }
+.section-card { height: 60px; }
+.section-card .rule-card-main { gap: 2px; }
+.report-preview-col { background: var(--panel2); }
+.kind-palette {
+  display: flex; flex-direction: column; gap: 2px;
+  margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line);
+}

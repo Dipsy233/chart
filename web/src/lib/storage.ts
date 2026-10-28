@@ -10,6 +10,8 @@
 import type { ChartEvent } from "../../../src/core/events.ts";
 import type { MetricsFrameLike } from "../../../src/core/live.ts";
 import type { PackIO } from "../../../src/store/packStore.ts";
+import { validateSpec } from "../../../src/report/validate.ts";
+import type { ReportSpec } from "../../../src/report/spec.ts";
 
 const PACKS_KEY = "chart:packs";
 const ACTIVE_KEY = "chart:active";
@@ -299,4 +301,127 @@ function httpPackIO(): PackIO {
       if (!response.ok) await failure(response, "active");
     },
   };
+}
+
+/* ── report specs ───────────────────────────────────────────────────────── */
+
+/**
+ * Report specs live beside the packs, for the same reason and in the same shape.
+ *
+ * A spec is data (see `docs/REPORTS.md`), so "the user can customise the report"
+ * is a storage question, not a renderer one: one JSON per spec plus a pointer to
+ * the one the report view renders. The store is deliberately *not* the pack
+ * store — a report and a rule are different kinds of document, and conflating
+ * them would make "which report does this pack use?" a question nobody asked.
+ *
+ * `chart:reports` / `chart:report-active`, mirroring `chart:packs` /
+ * `chart:active`, so export/import is the same straight copy.
+ */
+const REPORTS_KEY = "chart:reports";
+const REPORT_ACTIVE_KEY = "chart:report-active";
+
+export interface ReportSummary {
+  name: string;
+  /** The spec's own `id`, when it parses. */
+  id?: string;
+  title?: string;
+  sections: number;
+  active: boolean;
+  /** Problems found while loading. A broken spec is listed, not hidden. */
+  issues: string[];
+}
+
+function readReports(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(REPORTS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+    return parsed as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+function writeReports(reports: Record<string, string>): void {
+  localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
+}
+
+/** Every stored spec, with a summary. Broken specs appear with their issues. */
+export function listReports(): ReportSummary[] {
+  const reports = readReports();
+  const active = localStorage.getItem(REPORT_ACTIVE_KEY) ?? undefined;
+  return Object.entries(reports)
+    .map(([name, text]) => {
+      const issues: string[] = [];
+      let parsed: ReportSpec | undefined;
+      try {
+        parsed = parseSpec(text);
+        for (const issue of validateSpec(parsed)) issues.push(`${issue.path}: ${issue.message}`);
+      } catch (error) {
+        issues.push(error instanceof Error ? error.message : String(error));
+      }
+      return {
+        name,
+        ...(parsed?.id ? { id: parsed.id } : {}),
+        ...(parsed?.title ? { title: parsed.title } : {}),
+        sections: parsed?.sections.length ?? 0,
+        active: name === active,
+        issues,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function readReport(name: string): ReportSpec | undefined {
+  const text = readReports()[name];
+  if (text === undefined) return undefined;
+  return parseSpec(text);
+}
+
+export function activeReportName(): string | undefined {
+  return localStorage.getItem(REPORT_ACTIVE_KEY) ?? undefined;
+}
+
+/** Write a spec, validating first. Returns the issues it found (empty = saved). */
+export function saveReport(name: string, spec: ReportSpec): string[] {
+  const issues = validateSpec(spec).map((issue) => `${issue.path}: ${issue.message}`);
+  if (issues.length > 0) return issues;
+  const reports = readReports();
+  reports[name] = `${JSON.stringify(spec, null, 2)}\n`;
+  writeReports(reports);
+  return [];
+}
+
+export function removeReport(name: string): void {
+  const reports = readReports();
+  delete reports[name];
+  writeReports(reports);
+  if (localStorage.getItem(REPORT_ACTIVE_KEY) === name) localStorage.removeItem(REPORT_ACTIVE_KEY);
+}
+
+export function setActiveReport(name: string | undefined): void {
+  if (!name) localStorage.removeItem(REPORT_ACTIVE_KEY);
+  else localStorage.setItem(REPORT_ACTIVE_KEY, name);
+}
+
+/** Parse a spec's JSON text, shape-checked the way `parsePack` does a pack. */
+export function parseSpec(text: string): ReportSpec {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("a report spec must be a JSON object");
+  }
+  const candidate = parsed as Partial<ReportSpec>;
+  if (!Array.isArray(candidate.sections)) throw new Error("a report spec must have a `sections` array");
+  return candidate as ReportSpec;
+}
+
+/** Download a spec as a file, so it can be shared or committed. */
+export function downloadReport(name: string, spec: ReportSpec): void {
+  downloadPack(name, `${JSON.stringify(spec, null, 2)}\n`);
 }

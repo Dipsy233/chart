@@ -35,6 +35,74 @@ export function renderTemplate(template: string, context: TemplateContext): stri
   });
 }
 
+export interface TemplateIssue {
+  /** The placeholder as written, e.g. `{{facts.commands.faild}}`. */
+  expression: string;
+  /** The path inside it. */
+  path: string;
+  message: string;
+}
+
+/**
+ * Check a template's placeholders against a context, without rendering it.
+ *
+ * Rendering is fail-open on purpose: an unknown path becomes `""` so a report
+ * can never fail the run. That is right for production and terrible as
+ * feedback — `{{facts.commands.faild}}` renders `" commands failed"` and looks
+ * like a rule that simply is not matching. This is what an *editor* calls, so a
+ * typo is a red line instead of a mystery.
+ *
+ * A filter that does not exist is also reported: `|cout` silently does nothing.
+ */
+export function checkTemplate(template: string, context: TemplateContext): TemplateIssue[] {
+  const issues: TemplateIssue[] = [];
+  for (const match of template.matchAll(PLACEHOLDER)) {
+    const expression = match[1] ?? "";
+    const { path, filters } = parseExpression(expression);
+    if (path === "" || path === ".") continue;
+    const value = lookup(path, context);
+    if (value === undefined) {
+      issues.push({
+        expression: `{{${expression}}}`,
+        path,
+        message: `\`${path}\` does not resolve here — check the field name`,
+      });
+      continue;
+    }
+    for (const filter of filters) {
+      if (!FILTER_NAMES.has(filter.name)) {
+        issues.push({
+          expression: `{{${expression}}}`,
+          path,
+          message: `unknown filter \`${filter.name}\` — it is ignored when rendering`,
+        });
+      }
+    }
+  }
+  return issues;
+}
+
+/** The filters `applyFilters` knows. Kept next to it so the two cannot drift. */
+const FILTER_NAMES = new Set([
+  "count",
+  "keys",
+  "join",
+  "first",
+  "last",
+  "duration",
+  "secs",
+  "flag",
+  "bool",
+  "plural",
+  "lines",
+  "upper",
+  "lower",
+  "short",
+  "percent",
+  "bytes",
+  "round",
+]);
+
 /** Whether a template contains at least one placeholder. */
 export function isTemplate(value: string): boolean {
   PLACEHOLDER.lastIndex = 0;

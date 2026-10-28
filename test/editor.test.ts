@@ -31,6 +31,8 @@ import { CHART_EVENT_TYPES } from "../src/core/events.ts";
 import { withLive, metricsAt, metricsFromFrames } from "../src/core/live.ts";
 import { buildFacts } from "../src/facts/build.ts";
 import { deriveRuns, pickRun } from "../src/facts/runs.ts";
+import { checkTemplate, renderTemplate } from "../src/regimen/template.ts";
+import { traceRule } from "../src/regimen/trace.ts";
 import { resetEventIds, session } from "./fixtures.ts";
 import type { ChartEvent } from "../src/core/events.ts";
 import type { Rule } from "../src/regimen/rule.ts";
@@ -434,6 +436,198 @@ section("editor: preview a rule against a run");
 
 {
   checkEqual("an empty stream has no run to preview", previewRule(newRule(), []), undefined);
+}
+
+section("editor: why a rule did not fire");
+
+{
+  // The one thing `fired: false` never said. Every assertion here is checked
+  // against the verdict too, so a trace cannot politely disagree with the engine.
+  const s = session();
+  s.agentStart();
+  s.command("npm test", 0);
+  s.agentEnd("completed");
+  const events = s.events;
+
+  const rule: Rule = {
+    id: "user.strict",
+    name: "Strict",
+    when: {
+      combinator: "all",
+      conditions: [
+        { field: "facts.commands.failed", op: "gte", value: 1 },
+        { field: "facts.ended", op: "eq", value: true },
+      ],
+    },
+    emit: { level: "medium", title: "fired" },
+  };
+  const preview = previewRule(rule, events)!;
+
+  checkEqual("the rule did not fire", preview.fired, false);
+  checkEqual("the trace agrees", preview.trace.matched, false);
+  checkEqual("the failing condition is named", preview.trace.decisive, [0]);
+  checkEqual(
+    "the trace says which condition was true and which was not judged",
+    preview.trace.conditions.map((condition) => condition.outcome),
+    ["no", "skip"],
+  );
+  checkEqual(
+    "it reports what the field actually was",
+    preview.trace.conditions[0]?.actual,
+    0,
+  );
+  check(
+    "every condition reads as a sentence",
+    preview.trace.conditions.every((condition) => condition.sentence.length > 0),
+  );
+  check(
+    "and the sentence names the field",
+    preview.trace.conditions[0]?.sentence.includes("facts.commands.failed") === true,
+  );
+}
+
+{
+  // `all` short-circuits: a condition after the first failure is not judged, and
+  // saying it was "false" would be a nicer lie than "skipped".
+  const s = session();
+  s.agentStart();
+  s.command("ls", 0);
+  s.agentEnd("completed");
+  const rule: Rule = {
+    id: "user.short",
+    when: {
+      combinator: "all",
+      conditions: [
+        { field: "facts.commands.failed", op: "gte", value: 5 },
+        { field: "facts.files.created", op: "nonEmpty" },
+        { field: "facts.ended", op: "eq", value: true },
+      ],
+    },
+    emit: { level: "low", title: "t" },
+  };
+  const trace = traceRule(rule, {
+    facts: buildFacts(s.events, pickRun(deriveRuns(s.events))!),
+    live: {},
+    events: s.events,
+  });
+  checkEqual(
+    "later conditions are marked skipped, not failed",
+    trace.conditions.map((condition) => condition.outcome),
+    ["no", "skip", "skip"],
+  );
+}
+
+{
+  // `any`: the first true branch decides, and it is the decisive one.
+  const s = session();
+  s.agentStart();
+  s.command("ls", 0);
+  s.agentEnd("completed");
+  const rule: Rule = {
+    id: "user.any",
+    when: {
+      combinator: "any",
+      conditions: [
+        { field: "facts.commands.failed", op: "gte", value: 1 },
+        { field: "facts.commands.succeeded", op: "gte", value: 1 },
+        { field: "facts.commands.failed", op: "gte", value: 9 },
+      ],
+    },
+    emit: { level: "low", title: "t" },
+  };
+  const trace = traceRule(rule, {
+    facts: buildFacts(s.events, pickRun(deriveRuns(s.events))!),
+    live: {},
+    events: s.events,
+  });
+  checkEqual("any matched", trace.matched, true);
+  checkEqual("the branch that decided is named", trace.decisive, [1]);
+  checkEqual(
+    "the unreached branch is skipped",
+    trace.conditions.map((condition) => condition.outcome),
+    ["no", "ok", "skip"],
+  );
+}
+
+{
+  // A window without an event stream is an error, not a silent false — the
+  // trace says so, and the evaluator still fails open.
+  const s = session();
+  s.agentStart();
+  s.agentEnd("completed");
+  const rule: Rule = {
+    id: "user.window",
+    when: {
+      conditions: [
+        {
+          window: {
+            events: { type: ["command"] },
+            measure: "count",
+            op: "gte",
+            value: 1,
+          },
+        },
+      ],
+    },
+    emit: { level: "low", title: "t" },
+  };
+  const trace = traceRule(rule, {
+    facts: buildFacts(s.events, pickRun(deriveRuns(s.events))!),
+    live: {},
+  });
+  checkEqual("a window with no events errors rather than lying", trace.conditions[0]?.outcome, "error");
+  check(
+    "and the error is reported",
+    trace.errors.length === 1 && /event stream/.test(trace.errors[0] ?? ""),
+  );
+}
+
+section("editor: a typo in the wording is reported, not silently empty");
+
+{
+  const context = { facts: { commands: { failed: 3 } }, live: {}, vars: {} };
+  checkEqual("a good path is clean", checkTemplate("{{facts.commands.failed}} failed", context), []);
+
+  const issues = checkTemplate("{{facts.commands.faild}} commands failed", context);
+  checkEqual("a typo'd path is one issue", issues.length, 1);
+  check("it names the path", issues[0]?.path === "facts.commands.faild");
+  check("the message explains it", /does not resolve/.test(issues[0]?.message ?? ""));
+
+  // The reason it matters: rendering is fail-open, so the typo would look like
+  // an empty field rather than an error.
+  checkEqual("rendering stays fail-open", renderTemplate("{{facts.commands.faild}} x", context), " x");
+
+  const filterIssue = checkTemplate("{{facts.commands.failed|cout}} x", context);
+  check("an unknown filter is reported", /unknown filter/.test(filterIssue[0]?.message ?? ""));
+
+  // A window variable resolves when the rule has a window, and is a real issue
+  // when it does not — the same check serves both.
+  checkEqual(
+    "a window variable is clean when there is a window",
+    checkTemplate("{{vars.window.count}}", { ...context, vars: { window: { count: 2 } } }),
+    [],
+  );
+  check(
+    "and reported when there is none",
+    checkTemplate("{{vars.window.count}}", context).length === 1,
+  );
+}
+
+{
+  // The editor's preview reports both at once: the finding and the wording.
+  const s = session();
+  s.agentStart();
+  s.command("a", 1);
+  s.agentEnd("completed");
+  const rule: Rule = {
+    id: "user.typo",
+    when: { conditions: [{ field: "facts.commands.failed", op: "gte", value: 1 }] },
+    emit: { level: "high", title: "{{facts.commands.faild}} commands failed" },
+  };
+  const preview = previewRule(rule, s.events)!;
+  checkEqual("the rule fires", preview.fired, true);
+  checkEqual("but the preview also reports the typo", preview.templateIssues.length, 1);
+  checkEqual("and the trace says why it fired", preview.trace.decisive, [0]);
 }
 
 finish();

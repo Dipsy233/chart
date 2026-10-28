@@ -38,6 +38,9 @@ import {
 // it from the model it already uses.
 export { impliedPhase, phaseOf };
 import { dryRun } from "../regimen/evaluate.ts";
+import { describeRule as describeRuleOf } from "../regimen/describe.ts";
+import { traceRule, type RuleTrace } from "../regimen/trace.ts";
+import { checkTemplate, type TemplateIssue } from "../regimen/template.ts";
 import { buildFacts } from "../facts/build.ts";
 import { deriveRuns, pickRun } from "../facts/runs.ts";
 import { withLive } from "../core/live.ts";
@@ -97,8 +100,7 @@ export function withDerivedPhase(rule: Rule): Rule {
 
 /** The sentence an editor shows for a rule: what it watches and what it says. */
 export function describeRule(rule: Rule): string {
-  const level = rule.emit.level === "none" ? "off" : rule.emit.level;
-  return `${describeWhen(rule.when)} → ${level}`;
+  return describeRuleOf(rule);
 }
 
 /** Operators to offer for a field path, based on the catalogue's type. */
@@ -111,6 +113,7 @@ export interface PreviewOptions {
   /** The clock windows are anchored to. Defaults to the run's last moment. */
   anchor?: number;
   live?: LiveContext;
+  session?: { id?: string; project?: string };
   /** Which run to judge. Defaults to the newest. */
   runId?: string;
 }
@@ -124,11 +127,27 @@ export interface RulePreview {
   hypothetical: true;
   /** The event count the rule was judged against. */
   events: number;
+  /**
+   * Which condition said no — or, when it fired, which ones made it fire.
+   *
+   * `fired: false` on its own is the reason custom rules felt mysterious: the
+   * form could not tell a user *why* nothing happened. This is the answer, using
+   * the same `evalCondition` the evaluator calls, so it cannot disagree with the
+   * verdict.
+   */
+  trace: RuleTrace;
+  /** Template problems in the rule's own wording (a typo'd path renders empty). */
+  templateIssues: TemplateIssue[];
+  /** The phase this preview actually judged, when one applied. */
+  phase?: RulePhase;
 }
 
 /**
  * Judge one rule against a run. A simulation: it never writes a record and
  * never consults one, so it answers "what would this rule say about that run?".
+ *
+ * The result carries a `trace` and the wording's template issues, so an editor
+ * can show *why* in the same interaction that shows *what*.
  */
 export function previewRule(
   rule: Rule,
@@ -139,20 +158,44 @@ export function previewRule(
   if (!run) return undefined;
   const facts = buildFacts(events, run);
   const slice = events.slice(run.fromIndex, run.toIndex + 1);
+  const live = withLive(facts, options.live ?? {});
   const context: EvalContext = {
     facts,
-    live: withLive(facts, options.live ?? {}),
+    live,
     events: slice,
     anchor: options.anchor,
   };
   const pack: RulePack = { version: 1, name: "preview", rules: [rule] };
   const result = dryRun(pack, context);
+
+  // The wording is checked against the same context the finding was built from,
+  // so `{{vars.window.count}}` resolves for a rule that has a window, and is
+  // reported as unresolved for one that does not.
+  const templateContext = {
+    facts,
+    live,
+    session: options.session,
+    vars: {
+      evidence: 0,
+      rule: { id: rule.id, name: rule.name ?? rule.id },
+      window: { ids: [], matched: false, count: 0 },
+      sequence: { ids: [], matched: false, count: 0, step: {} },
+    },
+  };
+  const templateIssues = [
+    ...checkTemplate(rule.emit.title, templateContext),
+    ...(rule.emit.detail ? checkTemplate(rule.emit.detail, templateContext) : []),
+  ];
+
   return {
     findings: result.findings,
     errors: result.errors,
     fired: result.findings.length > 0,
     hypothetical: true,
     events: slice.length,
+    trace: traceRule(rule, context),
+    templateIssues,
+    ...(result.phase ? { phase: result.phase } : {}),
   };
 }
 

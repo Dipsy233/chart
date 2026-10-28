@@ -115,6 +115,7 @@ export { DEFAULT_PACK, defaultPack } from "./regimen/defaults.ts";
 export { EXAMPLE_PACK, examplePack } from "./regimen/examples.ts";
 export {
   renderTemplate,
+  checkTemplate,
   formatDuration,
   formatPercent,
   formatBytes,
@@ -122,9 +123,18 @@ export {
   plural,
   shortenPath,
 } from "./regimen/template.ts";
-export type { ReportSpec, ReportSection, RenderedReport, RenderedSection } from "./report/spec.ts";
-export { renderReport, renderText } from "./report/render.ts";
+export type { TemplateIssue } from "./regimen/template.ts";
+export type {
+  ReportSpec,
+  ReportSection,
+  RenderedReport,
+  RenderedSection,
+  SectionFilter,
+} from "./report/spec.ts";
+export { renderReport, renderText, type RenderContext } from "./report/render.ts";
+export { validateSpec, type SpecIssue } from "./report/validate.ts";
 export { LIVE_REPORT, SETTLED_REPORT, DEFAULT_REPORTS } from "./report/defaults.ts";
+export { CLASSIC_REPORT } from "./report/classic.ts";
 export { deriveOutcome, outcomeHeadline } from "./report/verdict.ts";
 export { buildFacts } from "./facts/build.ts";
 export { deriveRuns, pickRun, isObservedStream } from "./facts/runs.ts";
@@ -147,6 +157,8 @@ export interface Observation {
   anchor: number;
   /** True only for `simulate()`: this is a hypothetical, not the record. */
   hypothetical?: true;
+  /** The pack that judged, when the caller named one. Stamped into a report. */
+  packName?: string;
 }
 
 export interface ObserveOptions {
@@ -221,6 +233,7 @@ function judge(
     anchor: context.anchor ?? live.nowMs ?? facts.run.endedAt ?? facts.lastActivityAt,
     ...(result.phase ? { phase: result.phase } : {}),
     ...(hypothetical ? { hypothetical: true as const } : {}),
+    ...(pack.name ? { packName: pack.name } : {}),
   };
 }
 
@@ -272,6 +285,14 @@ export function replayReport(
     facts,
     attention: recorded.attention,
     live: withLive(facts, live),
+    // A replay must say it is a replay, and name the pack recorded with it.
+    // Otherwise a report of last week reads as if today's rules had judged it.
+    judgedBy: {
+      ...(recorded.packName ? { packName: recorded.packName } : {}),
+      ...(recorded.packHash ? { packHash: recorded.packHash } : {}),
+      at: recorded.anchor,
+      replayed: true,
+    },
   };
   return renderReport(spec, context);
 }
@@ -294,6 +315,11 @@ export function report(observation: Observation, spec: ReportSpec, live: LiveCon
     facts: observation.facts,
     attention: observation.attention,
     live: withLive(observation.facts, live),
+    judgedBy: {
+      ...(observation.packName ? { packName: observation.packName } : {}),
+      at: observation.anchor,
+      ...(observation.hypothetical ? { replayed: false } : {}),
+    },
   };
   return renderReport(spec, context);
 }
@@ -344,6 +370,9 @@ export {
 } from "./editor/draft.ts";
 
 export { deriveOutcome as outcome, outcomeHeadline as headline };
+export { describeRule as describeRuleOf } from "./regimen/describe.ts";
+export type { ConditionTrace, RuleTrace, LeafOutcome } from "./regimen/trace.ts";
+export { traceRule, traceWhen } from "./regimen/trace.ts";
 export { withLive, metricsFromFrames, metricsAt } from "./core/live.ts";
 export type { EggSampleLike, MetricsFrameLike } from "./core/live.ts";
 export { dryRun as judgeOnce };

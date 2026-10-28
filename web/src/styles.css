@@ -962,3 +962,11 @@ textarea.field { resize: vertical; min-height: 46px; line-height: 1.5; }
 /* 「全部事件」 is a card with no ✕: it is a button that *is* the frame, so it has
    to stack its own two lines the way `.run-pick` does. */
 .run-card.whole { flex-direction: column; gap: 2px; padding: 7px 9px; }
+
+/* The report view's 判读依据: a label, not a picker. */
+.lens-name {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px;
+  background: var(--panel);
+}
+.lens-pack { font-family: var(--mono); font-size: 12px; color: var(--ink2); }

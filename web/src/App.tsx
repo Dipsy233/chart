@@ -709,6 +709,14 @@ export function App() {
 
   const sessionNames = [...userSessions.map((session) => session.name), ...DEMOS.map((demo) => demo.label)];
   /** One 事件会话 column, shared by the report and event views. */
+  /**
+   * Two versions of the 事件会话 column, and the difference is the point.
+   *
+   * The event view *manages* sessions — it can create and delete them. The
+   * report view only *shows* which one it is reporting on: no ＋, no ✕, because a
+   * report that could add a session would be an editor wearing a report's
+   * clothes. Selecting a session stays, because that is navigation, not editing.
+   */
   const sessionColumn = (
     <SessionColumn
       subjects={subjects}
@@ -717,6 +725,9 @@ export function App() {
       onAdd={() => setNewSessionOpen(true)}
       onDelete={(id) => setSessionToDelete(id)}
     />
+  );
+  const sessionColumnReadOnly = (
+    <SessionColumn subjects={subjects} selectedId={demoId} onSelect={(id) => void switchDemo(id)} />
   );
 
   return (
@@ -759,16 +770,8 @@ export function App() {
         packName={packName}
         metrics={metrics}
         spec={activeSpec}
-        sessions={sessionColumn}
+        sessions={sessionColumnReadOnly}
         onSelectRun={setRunId}
-        onSelectPack={(name) => void openPack(name)}
-        onActivatePack={(name) => void activatePack(name)}
-        onCreatePack={() => void createPack()}
-        onSelectRule={(id) => {
-          setSelectedRuleId(id);
-          setView("rules");
-        }}
-        onOpenEvents={() => setView("events")}
       />
 
       {/* ══ 规则编辑 ═════════════════════════════════════════ */}

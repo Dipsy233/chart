@@ -47,11 +47,6 @@ export function ReportView({
   metrics,
   spec,
   onSelectRun,
-  onSelectPack,
-  onActivatePack,
-  onCreatePack,
-  onSelectRule,
-  onOpenEvents,
   /** The 事件会话 column — what is being observed, rendered leftmost. */
   sessions,
 }: {
@@ -69,11 +64,6 @@ export function ReportView({
   /** The session's resource samples, if the host has a sampler. */
   metrics?: readonly MetricsFrameLike[];
   onSelectRun: (id: string) => void;
-  onSelectPack: (name: string | undefined) => void;
-  onActivatePack: (name: string | undefined) => void;
-  onCreatePack: () => void;
-  onSelectRule: (id: string) => void;
-  onOpenEvents: () => void;
   sessions?: React.ReactNode;
 }) {
   const view = pickRunView(views, runId);
@@ -148,9 +138,6 @@ export function ReportView({
                 {playback.frame.cursor + 1} / {playback.frame.total}
               </span>
             ) : null}
-            <button className="btn tiny ghost" title="去事件面板编辑这一轮" onClick={onOpenEvents}>
-              ✎
-            </button>
           </div>
         }
       />
@@ -222,9 +209,6 @@ export function ReportView({
                 <span className={`chip ${playback.frame.atEnd ? "settled" : "live"}`}>
                   {playback.frame.atEnd ? zhRunStatus(view.run.status) : "进行中"}
                 </span>
-                <button className="btn tiny ghost" onClick={onOpenEvents} title="去事件面板编辑这一轮">
-                  编辑事件流
-                </button>
               </div>
 
               <div className="play-row">
@@ -269,37 +253,18 @@ export function ReportView({
       {/* ── the lens: pack + what it says right now ─────────── */}
       <div className="col fired-col">
         <div className="pane-head">
-          <span>规则包 lens</span>
+          <span>判读依据</span>
           <span className="spacer" />
           <span className="tiny">{pack.rules.length} 条</span>
         </div>
         <div className="pane-body stack" style={{ gap: 8 }}>
-          <select
-            className="field"
-            value={packName ?? ""}
-            onChange={(event) => onSelectPack(event.target.value || undefined)}
-          >
-            <option value="">内置默认 · {DEFAULT_PACK.rules.length} 条</option>
-            {packs.map((summary) => (
-              <option key={summary.name} value={summary.name}>
-                {summary.name} · {summary.rules} 条{summary.active ? " · 生效中" : ""}
-              </option>
-            ))}
-          </select>
-          <div className="row">
-            <button className="btn tiny" onClick={onCreatePack}>
-              ＋新建
-            </button>
-            <button
-              className="btn tiny"
-              onClick={() => onActivatePack(packName)}
-              title={activeName === packName ? "已经是生效规则包" : "把这份规则包设为生效"}
-            >
-              {activeName === packName ? "✓ 已生效" : "设为生效"}
-            </button>
-            <span className="spacer" />
+          {/* Read-only on purpose: this view renders a judgement, it does not
+              choose who makes it. Changing the pack is the rules view's job, and
+              a report that could re-judge itself would not be a report. */}
+          <div className="lens-name">
+            <span className="lens-pack">{packName ?? "内置默认"}</span>
             <span className="tiny muted">
-              {packName === undefined ? "只读" : "已保存"}
+              {activeName === packName ? "生效中" : "不是生效的规则包"}
             </span>
           </div>
 
@@ -320,16 +285,11 @@ export function ReportView({
               ) : (
                 <div className="stack" style={{ gap: 6 }}>
                   {playback.observation.findings.map((finding) => (
-                    <button
-                      key={finding.ruleId}
-                      className={`fired-item ${finding.level}`}
-                      onClick={() => onSelectRule(finding.ruleId)}
-                      title="打开这条规则的编辑器"
-                    >
+                    <div key={finding.ruleId} className={`fired-item ${finding.level}`} title={finding.ruleId}>
                       <span className={`chip ${finding.level}`}>{zhLevel(finding.level)}</span>
                       <span className="fired-title">{finding.title}</span>
                       <span className="fired-rule mono">{finding.ruleId}</span>
-                    </button>
+                    </div>
                   ))}
                 </div>
               )}
@@ -350,8 +310,6 @@ export function ReportView({
 
               <div className="fired-head" style={{ marginTop: 4 }}>
                 <span>规则状态</span>
-                <span className="spacer" />
-                <span className="tiny muted">点一条去编辑</span>
               </div>
               <div className="rule-state-list">
                 {pack.rules.map((rule) => {
@@ -375,16 +333,15 @@ export function ReportView({
                           ? { tone: "off", text: "只在进行中" }
                           : { tone: "quiet", text: "未触发" };
                   return (
-                    <button
+                    <div
                       key={rule.id}
                       className={`rule-state${finding ? " fired" : ""}${off ? " off" : ""}`}
-                      onClick={() => onSelectRule(rule.id)}
                       title={rule.id}
                     >
                       <span className={`state-dot ${status.tone}`} />
                       <span className="state-name">{rule.name || rule.id}</span>
                       <span className={`state-text ${status.tone}`}>{status.text}</span>
-                    </button>
+                    </div>
                   );
                 })}
               </div>

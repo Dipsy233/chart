@@ -13,7 +13,9 @@ import type { RulePack } from "../src/regimen/rule.ts";
  */
 
 const dir = await mkdtemp(join(tmpdir(), "chart-api-"));
-const server: Server = createApiServer({ dir });
+// A port nothing listens on: the Absence hop is checked against a fake in
+// `absence.test.ts`, and this suite must not depend on a real Absence running.
+const server: Server = createApiServer({ dir, absenceBase: "http://127.0.0.1:9" });
 await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 const address = server.address();
 const port = typeof address === "object" && address ? address.port : 0;
@@ -204,6 +206,23 @@ try {
   {
     const noStatic = await call("GET", "/");
     check("without --static the root is 404", noStatic.status === 404);
+  }
+
+  section("api: absence is unreachable when nothing is listening");
+
+  {
+    // The host answers `available: false` with a reason, not a 500: Absence not
+    // running is the normal case for an editor opened on its own.
+    const probe = await call("GET", "/api/absence/sessions");
+    check("the probe answers 200", probe.status === 200);
+    checkEqual("and says Absence is unavailable", (probe.body as { available: boolean }).available, false);
+    check(
+      "with a reason a person can act on",
+      typeof (probe.body as { error?: unknown }).error === "string",
+    );
+
+    const snapshot = await call("GET", "/api/absence/sessions/sess_nope/snapshot");
+    checkEqual("a snapshot of nothing is also unavailable", (snapshot.body as { available: boolean }).available, false);
   }
 } finally {
   await new Promise<void>((resolve) => server.close(() => resolve()));

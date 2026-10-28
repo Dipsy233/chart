@@ -47,12 +47,22 @@ import {
 } from "../src/index.ts";
 import { QUANTS } from "../src/regimen/predicate.ts";
 import { fsPackIO } from "../src/store/fs.ts";
+import {
+  DEFAULT_ABSENCE_BASE,
+  collectAbsenceSnapshot,
+  listAbsenceSessions,
+} from "./absence.ts";
 
 export interface ApiOptions {
   /** Where the packs live. Created on first write. */
   dir: string;
   /** Optional directory of static files (the built editor) to serve at `/`. */
   staticDir?: string;
+  /**
+   * Where Absence's server is. The editor's ＋ dialog imports a snapshot of the
+   * agent session running there; without a reachable server it just says so.
+   */
+  absenceBase?: string;
 }
 
 const CORS: Record<string, string> = {
@@ -69,10 +79,11 @@ const MAX_BODY = 2 * 1024 * 1024;
 export function createApiServer(options: ApiOptions): Server {
   const dir = resolve(options.dir);
   const staticDir = options.staticDir ? resolve(options.staticDir) : undefined;
+  const absenceBase = options.absenceBase ?? DEFAULT_ABSENCE_BASE;
   const store = new PackStore(fsPackIO({ dir }), DEFAULT_PACK);
 
   return createServer((req, res) => {
-    void handle(req, res, { dir, staticDir, store }).catch((error) => {
+    void handle(req, res, { dir, staticDir, store, absenceBase }).catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
       if (!res.headersSent) json(res, 500, { error: message });
       else res.end();
@@ -84,6 +95,7 @@ interface Context {
   dir: string;
   staticDir?: string;
   store: PackStore;
+  absenceBase: string;
 }
 
 async function handle(req: IncomingMessage, res: ServerResponse, context: Context): Promise<void> {
@@ -131,8 +143,41 @@ async function handle(req: IncomingMessage, res: ServerResponse, context: Contex
           "PATCH  /api/packs/:name/rules/:id",
           "DELETE /api/packs/:name/rules/:id",
           "POST   /api/packs/:name/rules/:id/move",
+          "GET    /api/absence/sessions",
+          "GET    /api/absence/sessions/:id/snapshot",
         ],
       });
+    }
+
+    /* ── absence: the agent session being observed ─────────── */
+    //
+    // Chart does not drive Absence; these two routes only *read* it, over the
+    // loopback. The editor's ＋ dialog uses them to take one copy of a real
+    // session (see scripts/absence.ts). Both answer 200 with `available: false`
+    // when Absence is not running, so the dialog can explain rather than fail.
+    if (resource === "absence" && name === "sessions") {
+      if (method !== "GET") return json(res, 405, { error: `${method} not allowed on /api/absence/sessions` });
+      // parts is [api, absence, sessions, :id, snapshot] here, so `sub` carries
+      // the session id and `ruleId` the verb.
+      if (sub !== undefined) {
+        const id = sub;
+        if (ruleId !== "snapshot") {
+          return json(res, 404, { error: `no route for ${method} ${url.pathname}` });
+        }
+        const probe = await listAbsenceSessions(context.absenceBase);
+        if (!probe.available) {
+          return json(res, 200, { available: false, base: probe.base, error: probe.error });
+        }
+        const found = probe.sessions.find((session) => session.id === id);
+        if (!found) return json(res, 404, { available: true, error: `no Absence session "${id}"` });
+        const snapshot = await collectAbsenceSnapshot(context.absenceBase, id, found.label);
+        return json(res, 200, {
+          ...snapshot,
+          projectPath: found.projectPath,
+          runtime: found.runtime,
+        });
+      }
+      return json(res, 200, await listAbsenceSessions(context.absenceBase));
     }
 
     if (resource === "catalog" && method === "GET") {
@@ -438,12 +483,17 @@ if (isMain()) {
     typeof flags["dir"] === "string" ? flags["dir"] : (process.env.CHART_RULES_DIR ?? ".chart/rules"),
   );
   const staticDir = typeof flags["static"] === "string" ? flags["static"] : undefined;
-  const server = createApiServer({ dir, staticDir });
+  const absenceBase =
+    (typeof flags["absence"] === "string" ? flags["absence"] : undefined) ??
+    process.env.ABSENCE_URL ??
+    DEFAULT_ABSENCE_BASE;
+  const server = createApiServer({ dir, staticDir, absenceBase });
   server.listen(port, "127.0.0.1", () => {
     console.log(`chart rules API — http://127.0.0.1:${port}`);
-    console.log(`  packs : ${dir}`);
-    if (staticDir) console.log(`  editor: ${resolve(staticDir)}`);
-    console.log(`  health: curl -s http://127.0.0.1:${port}/api/health`);
-    console.log(`  docs  : docs/API.md`);
+    console.log(`  packs  : ${dir}`);
+    console.log(`  absence: ${absenceBase}`);
+    if (staticDir) console.log(`  editor : ${resolve(staticDir)}`);
+    console.log(`  health : curl -s http://127.0.0.1:${port}/api/health`);
+    console.log(`  docs   : docs/API.md`);
   });
 }

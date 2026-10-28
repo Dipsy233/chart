@@ -68,20 +68,27 @@ export function localStoragePackIO(): PackIO {
  * A session the user created in the 事件会话 column: a name and a stream.
  *
  * A session is either built by hand (empty at first, then edited event by
- * event) or a **snapshot**: a one-time copy of another session, taken when the
- * ＋ dialog's 快照 button was pressed. The copy is deep, so the two sessions
- * share nothing afterwards — editing one never writes into the other. That is
- * why the events and the resource samples are stored here rather than read
- * through from their source.
+ * event) or an **import** of an Absence session — the agent that was actually
+ * running in `../daze`. An import is a one-shot copy: the events and the
+ * resource samples are read once, at the click, and stored here. Nothing polls
+ * Absence afterwards, so the copy can never drift back into sync with the agent
+ * it came from.
  */
 export interface StoredSession {
   id: string;
   name: string;
   events: ChartEvent[];
-  /** Resource samples, frozen with the events when the session is a snapshot. */
+  /** Resource samples, frozen with the events when the session was imported. */
   metrics?: MetricsFrameLike[];
-  /** Set on a snapshot: which session (and which of its names) it copied. */
-  snapshotOf?: { id: string; label: string };
+  /** Set on an import: the Absence session it was copied from, and when. */
+  importedFrom?: {
+    sessionId: string;
+    label: string;
+    projectPath?: string;
+    fetchedAt: number;
+    /** The archive was longer than the import cap. */
+    truncated?: boolean;
+  };
 }
 
 const SESSIONS_KEY = "regimen.user-sessions.v1";
@@ -97,6 +104,9 @@ export function loadUserSessions(): StoredSession[] {
           .map((s) => ({
             ...s,
             ...(Array.isArray(s.metrics) ? { metrics: s.metrics } : {}),
+            // A row written by the earlier build pointed at another editor
+            // session; keep the provenance readable rather than dropping it.
+            ...(s.importedFrom ? { importedFrom: s.importedFrom } : {}),
           }))
       : [];
   } catch {
@@ -104,12 +114,15 @@ export function loadUserSessions(): StoredSession[] {
   }
 }
 
-export function saveUserSessions(sessions: readonly StoredSession[]): void {
+/** Persist the sessions; `false` when the browser refused (quota / private mode). */
+export function saveUserSessions(sessions: readonly StoredSession[]): boolean {
   try {
     localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+    return true;
   } catch {
-    // private mode / quota — the session still works, it just will not survive
-    // a reload; silently keeping the editor usable beats an error toast.
+    // private mode / quota. Saying so beats a silent no-op: an imported Absence
+    // session can be large, and the dialog has to be able to stay open.
+    return false;
   }
 }
 

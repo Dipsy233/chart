@@ -38,7 +38,7 @@ import { pickRunView, runViews } from "./lib/runs.ts";
 import { RULE_TEMPLATES } from "./lib/plain.ts";
 import { EXAMPLE_PACK_NAME, PackColumn } from "./components/PackColumn.tsx";
 import { SessionColumn, type Subject } from "./components/SessionColumn.tsx";
-import { NewSessionDialog, type SessionMode } from "./components/NewSessionDialog.tsx";
+import { NewSessionDialog, type AbsenceImport, type SessionMode } from "./components/NewSessionDialog.tsx";
 import { ConfirmDialog, PromptDialog } from "./components/PromptDialog.tsx";
 import { JsonDialog } from "./components/JsonDialog.tsx";
 import { RuleCardList } from "./components/RuleCardList.tsx";
@@ -339,30 +339,49 @@ export function App() {
 
   /**
    * The header ＋ on the sessions column opens a dialog with two ways to add a
-   * session. Both set state directly rather than through `switchDemo`, whose
-   * closure still sees the session list from before this one was added.
+   * session:
    *
-   * `snapshot` is the interesting one: the current session's events (and its
-   * resource samples) are **deep-copied once**, at the click. From then on the
-   * copy and the source are two independent sessions — no live link, no sync.
+   *   empty     a blank stream, built event by event
+   *   absence   one **one-shot copy of an Absence session** — the agent really
+   *             running in `../daze`, not a conversation in this editor
+   *
+   * The import is a photograph: the dialog read Absence once, before this call,
+   * and hands over the copy. Nothing here re-reads it, so the new session can
+   * never drift back into sync with the agent it came from.
+   *
+   * Resolves to an error message when the copy cannot be kept (Storage full),
+   * so the dialog can stay open with its explanation.
    */
-  const createSession = (name: string, mode: SessionMode) => {
+  const createSession = async (
+    name: string,
+    mode: SessionMode,
+    imported?: AbsenceImport,
+  ): Promise<string | undefined> => {
     const id = `user:s-${Date.now()}`;
-    // The snapshot is taken here and nowhere else: this is the "one click" the
-    // option promises. Nothing downstream re-reads the source session.
-    const copiedEvents = mode === "snapshot" ? structuredClone(events) : ([] as ChartEvent[]);
-    const copiedMetrics = mode === "snapshot" ? structuredClone(metrics) : ([] as MetricsFrameLike[]);
+    const copiedEvents = mode === "absence" ? (imported?.events ?? []) : ([] as ChartEvent[]);
+    const copiedMetrics = mode === "absence" ? (imported?.metrics ?? []) : ([] as MetricsFrameLike[]);
     const session: StoredSession = {
       id,
       name,
       events: copiedEvents,
-      ...(mode === "snapshot"
-        ? { metrics: copiedMetrics, snapshotOf: { id: demoId, label: currentSubjectLabel } }
+      ...(mode === "absence" && imported
+        ? {
+            metrics: copiedMetrics,
+            importedFrom: {
+              sessionId: imported.sessionId,
+              label: imported.label,
+              ...(imported.projectPath ? { projectPath: imported.projectPath } : {}),
+              fetchedAt: imported.fetchedAt,
+              ...(imported.truncated ? { truncated: true } : {}),
+            },
+          }
         : {}),
     };
     const sessions = [...userSessions, session];
+    if (!saveUserSessions(sessions)) {
+      return "浏览器存不下这份会话（可能是太大了）——删点旧会话，或换个短一点的会话";
+    }
     setUserSessions(sessions);
-    saveUserSessions(sessions);
     setNewSessionOpen(false);
     setDemoId(id);
     setRunId(undefined);
@@ -371,10 +390,11 @@ export function App() {
     setEvents(copiedEvents);
     setMetrics(copiedMetrics);
     notify(
-      mode === "snapshot"
-        ? `已快照「${name}」：${copiedEvents.length} 个事件，之后不再同步`
+      mode === "absence"
+        ? `已从 Absence 导入「${name}」：${copiedEvents.length} 个事件${imported?.truncated ? "（太长，只取了最新部分）" : ""}，之后不再同步`
         : `已新建模拟会话「${name}」——去事件流里加第一轮`,
     );
+    return undefined;
   };
 
   const deleteSession = (id: string) => {
@@ -384,24 +404,18 @@ export function App() {
     saveUserSessions(sessions);
     setSessionToDelete(undefined);
     if (demoId === id) void switchDemo(DEMOS[0]!.id);
-    if (gone) notify(`已删除模拟会话「${gone.name}」`);
+    if (gone) notify(`已删除会话「${gone.name}」`);
   };
 
   const selectedRule = pack.rules.find((rule) => rule.id === selectedRuleId) ?? pack.rules[0];
 
-  /** The label of the session currently on screen, for the snapshot option. */
-  const currentSubjectLabel =
-    userSessions.find((session) => session.id === demoId)?.name ??
-    DEMOS.find((demo) => demo.id === demoId)?.label ??
-    "当前会话";
-
-  /** The 事件会话 column's rows: the user's simulated sessions, then the demos. */
+  /** The 事件会话 column's rows: the user's sessions, then the demos. */
   const subjects: Subject[] = [
     ...userSessions.map((session) => ({
       id: session.id,
       label: session.name,
-      hint: session.snapshotOf
-        ? `快照 · 复制自「${session.snapshotOf.label}」，之后不再同步`
+      hint: session.importedFrom
+        ? `Absence 导入 · 复制自「${session.importedFrom.label}」，之后不再同步`
         : "模拟会话 · 保存在浏览器里，删了就没了",
       deletable: true,
     })),
@@ -413,7 +427,6 @@ export function App() {
   ];
 
   const sessionNames = [...userSessions.map((session) => session.name), ...DEMOS.map((demo) => demo.label)];
-
   /** One 事件会话 column, shared by the report and event views. */
   const sessionColumn = (
     <SessionColumn
@@ -681,12 +694,10 @@ export function App() {
 
       {newSessionOpen ? (
         <NewSessionDialog
-          sourceLabel={currentSubjectLabel}
-          sourceCount={events.length}
           taken={sessionNames}
           defaults={{
             empty: freeSessionName(sessionNames, "我的实验"),
-            snapshot: freeSessionName(sessionNames, `${currentSubjectLabel} · 快照`),
+            absence: freeSessionName(sessionNames, "Absence 会话"),
           }}
           onCreate={createSession}
           onClose={() => setNewSessionOpen(false)}
@@ -695,9 +706,9 @@ export function App() {
 
       {sessionToDelete ? (
         <ConfirmDialog
-          title="删除模拟会话"
-          message={`确定删除模拟会话「${userSessions.find((session) => session.id === sessionToDelete)?.name}」吗？它的整段事件流会一起删掉，不能撤销。`}
-          detail="内置演示会话不受影响。"
+          title="删除会话"
+          message={`确定删除会话「${userSessions.find((session) => session.id === sessionToDelete)?.name}」吗？它的整段事件流会一起删掉，不能撤销。`}
+          detail="内置演示会话不受影响；从 Absence 导入的副本已经独立，删了也不会影响 Absence。"
           onConfirm={() => deleteSession(sessionToDelete)}
           onClose={() => setSessionToDelete(undefined)}
         />

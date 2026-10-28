@@ -155,8 +155,9 @@ trailing `agent_end` (anything after it belongs to no run).
 ┌ 事件会话 sessions ────────────────────────┐
 │ ● 研究任务 · 两个交付物                   │
 │   一次调研：…（内置演示）                 │
-│ ● 我的实验 · 快照                    ✕   │
-│   快照 · 复制自「研究任务…」              │
+│ ● Absence 会话                       ✕   │
+│   Absence 导入 · 复制自「chart · sess…」  │
+│ ● 我的实验                           ✕   │
 │ ＋                                        │
 └──────────────────────────────────────────┘
 ```
@@ -165,18 +166,35 @@ The column lists the sessions you made, then the demos. Its **＋** opens a dial
 with two ways to add one:
 
 - **空会话** — a blank stream, built event by event in 事件流.
-- **当前会话的快照** — a copy of the session on screen *as it is at that
-  moment*. This is a **snapshot, not a link**: the events and the resource
-  samples are deep-copied once, when you press 快照, and from then on the copy
-  and the source are two independent sessions. Editing one never writes into the
-  other, and nothing is synced afterwards. The option is disabled (and says so)
-  when the current session has no events.
+- **当前会话 · 从 Absence 导入** — the agent session **Absence is observing**
+  (`../daze`), not a conversation in this editor. This is the real thing: the
+  events the agent actually produced, plus the resource samples its sampler
+  recorded, so a `last N minutes` window rule or a CPU rule judges real data.
+
+The import is a **snapshot, not a subscription**. When you press 导入, Chart's
+API reads Absence once over the loopback — history, every archived event page,
+the live session's in-memory tail (so a copy taken mid-run is not missing the
+last second), and the bucketed metric series — and the editor stores **one deep
+copy**. There is no cursor, no socket and no polling afterwards: what happens in
+Absence next does not reach the copy, and editing the copy does not touch
+Absence. The card keeps the provenance (`Absence 导入 · 复制自「…」，之后不再同步`).
+
+The dialog's picker offers the sessions Absence has actually archived (a Pi-only
+row has no events in Absence's database, so it would import empty), newest
+first, capped at twenty, with the live one marked `●`. 当前会话 means the live
+one — Absence's `GET /api/sessions/:id` answers 200 only for a session still in
+its store, so liveness is asked, not guessed. When nothing is live the newest
+archived session is offered, which is the one you were just in.
+
+**Absence not running is normal, not an error.** The option is disabled and says
+why (`连不上 http://127.0.0.1:8848（Absence 没在运行？）`); the empty session still
+works. `npm run api` takes `--absence <url>` (or `ABSENCE_URL`) when Absence
+listens somewhere else.
 
 The dialog also owns the name, with the editor's usual rules — non-empty, not
-already taken — and a free default per mode (`我的实验`, `研究任务… · 快照`). A
-snapshot's card says what it was copied from, so a column of experiments stays
-readable. Sessions live in `localStorage` and the ✕ on a card deletes one (with
-the in-page confirm dialog); the demos are not deletable.
+already taken — and a free default per mode (`我的实验`, `Absence 会话`). Sessions
+live in `localStorage` and the ✕ on a card deletes one (with the in-page confirm
+dialog); the demos are not deletable.
 
 The pack column lists the built-in defaults, a read-only **示例规则** pack
 (`EXAMPLE_PACK` — eleven rules that each demonstrate one capability of the

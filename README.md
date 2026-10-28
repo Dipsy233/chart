@@ -47,7 +47,7 @@ recorded then**, not from today's rules.
 ./start-chart.sh          # installs what is missing, then starts the editor
 ./start-chart.sh api      # the rules API on http://127.0.0.1:5175 (for agents)
 ./start-chart.sh serve    # build the editor, serve it + the API on one port
-./start-chart.sh check    # the 477 assertions
+./start-chart.sh check    # the 552 assertions
 ./start-chart.sh demo     # a real report, plus .chart/demo-events.json for the CLI
 ./start-chart.sh rules list
 ```
@@ -171,10 +171,15 @@ report and event views, where every session is visible at once.
   `agent_end`.
 - **事件会话** — the leftmost column of the report and event views. Its **＋**
   opens a dialog with two ways to add a session: an **empty** one you build event
-  by event, or a **snapshot of the current session**. A snapshot is a photo, not
-  a mirror: it deep-copies the events and the resource samples at the instant you
-  press 快照, and the copy and the source are independent from then on — editing
-  one never writes into the other. The card says what it was copied from.
+  by event, or **当前会话 · 从 Absence 导入** — the agent session Absence is
+  observing in this project's sibling `../daze` checkout. The import is a
+  **snapshot, not a subscription**: `scripts/absence.ts` reads Absence over the
+  loopback (history → every archived event page → the live session's in-memory
+  tail → the bucketed metric series), converts the events with the engine's own
+  adapter, and the editor stores one deep copy. Nothing polls Absence afterwards,
+  so the copy and the agent it came from are independent from that click on. The
+  picker offers the sessions Absence has actually archived, newest first, and
+  marks the live one; Absence not running is said in words, not an exception.
 
 Judgement lives in the report and nowhere else: the editor and the event stream
 edit data, and only the report panel runs the pack. The editor also brings its
@@ -244,9 +249,10 @@ src/
   store/     packStore.ts fs.ts                 — packs on disk (validated, atomic)
   editor/    catalog.ts draft.ts                — the model a rule editor needs
   adapters/  absence.ts                         — the only Absence-aware file
-test/        facts regimen defaults report      — 477 checks, one harness
-             store editor api
+test/        facts regimen defaults report      — 552 checks, one harness
+             store editor api absence
 scripts/     check.ts demo.ts chart.ts api.ts    — chart.ts and api.ts are the hosts
+             absence.ts                         — the read-only Absence hop
 web/         React editor + simulator           — dev tool, not published
 docs/        DESIGN.md RULES.md REPORTS.md EDITOR.md API.md
 ```

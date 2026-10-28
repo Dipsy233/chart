@@ -15,7 +15,7 @@ rem
 rem  Usage:
 rem    start-chart.bat              start the editor (http://localhost:5174)
 rem    start-chart.bat open         start it and open a browser
-rem    start-chart.bat check        run the 477 checks, then exit
+rem    start-chart.bat check        run the 552 checks, then exit
 rem    start-chart.bat demo         print the demo report, then exit
 rem    start-chart.bat rules list   the rule-pack CLI (passes the rest through)
 rem    start-chart.bat api          the rules API for agents (http://127.0.0.1:5175)

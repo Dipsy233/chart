@@ -48,6 +48,8 @@ The API adds the three things a file cannot:
 | `PATCH` | `/api/packs/:name/rules/:id` | merge: top-level, plus one level into `when` and `emit` |
 | `DELETE` | `/api/packs/:name/rules/:id` | remove one rule |
 | `POST` | `/api/packs/:name/rules/:id/move` | `{ "index": 0 }` — evaluation order |
+| `GET` | `/api/absence/sessions` | Absence's importable sessions (see below) |
+| `GET` | `/api/absence/sessions/:id/snapshot` | a one-shot copy of one Absence session |
 
 Every mutation returns `{ pack, rule?, issues }` — the **new state**, so a caller
 never has to re-read. Validation failures are `422` with `issues[]`, each carrying
@@ -56,6 +58,38 @@ the path into the rule (`rules[0].when.conditions[1].op`).
 `PUT` on a pack validates strictly. `?force=1` writes an invalid pack anyway and
 returns its issues; that exists for the editor, which must be able to save a
 half-typed rule without blocking the user.
+
+## Absence: the agent session being observed
+
+Two read-only routes bridge to Absence — the observation engine in the sibling
+`../daze` checkout — so the editor's ＋ dialog can add **the session Absence is
+watching**. Absence sends no CORS headers and lives on another origin, so the
+browser cannot call it; the API host reads it over the loopback instead.
+
+```bash
+curl -s localhost:5175/api/absence/sessions | jq '.sessions[] | {id, label, live}'
+curl -s localhost:5175/api/absence/sessions/sess_abc/snapshot | jq '{eventCount, truncated}'
+```
+
+Both always answer `200`. Absence not running is the normal case, not a failure:
+
+```jsonc
+{ "available": false, "base": "http://127.0.0.1:8848",
+  "sessions": [], "error": "连不上 http://127.0.0.1:8848（Absence 没在运行？）" }
+```
+
+Absence's address is `--absence <url>` on `npm run api`, or `ABSENCE_URL`, or
+`http://127.0.0.1:8848`.
+
+**The snapshot is a one-shot read.** No cursor is kept, nothing is polled, and no
+socket is opened: one call fetches the history row, every archived event page,
+the live session's in-memory tail (merged by event id, so a copy taken mid-run
+includes the last second), and the bucketed metric series. The response is a
+value the caller owns — `{ events, metrics, eventCount, truncated }` — with
+events already valid Absence events, ready for `toChartEvents`.
+
+`truncated: true` means the archive was longer than the import cap (12 pages of
+2000 events) and the copy is the newest part.
 
 ## For an agent
 

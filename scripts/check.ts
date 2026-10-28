@@ -16,6 +16,7 @@ const modules = [
   "../test/store.test.ts",
   "../test/editor.test.ts",
   "../test/api.test.ts",
+  "../test/absence.test.ts",
 ];
 
 section("chart");

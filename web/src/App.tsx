@@ -161,6 +161,29 @@ function ReportRow({
   );
 }
 
+/**
+ * The report names that are not files.
+ *
+ * `@default` is the editor's own spec and `@classic` is Absence's old layout
+ * written as data; both are read-only, and both are addressable by name so that
+ * *activating* one is a normal choice rather than "clear the pointer".
+ */
+const BUILT_IN_REPORTS: Record<string, ReportSpec> = {
+  "@default": ZH_REPORT,
+  "@classic": CLASSIC_REPORT,
+};
+
+/** A name → the spec it refers to, built-in or stored. The one lookup. */
+function resolveSpec(name: string | undefined): ReportSpec | undefined {
+  if (name === undefined) return ZH_REPORT;
+  return BUILT_IN_REPORTS[name] ?? readReport(name);
+}
+
+/** Whether a name is a built-in (read-only) report. */
+function isBuiltInReport(name: string | undefined): boolean {
+  return name !== undefined && name in BUILT_IN_REPORTS;
+}
+
 export function App() {
   const [view, setView] = useState<View>("report");
   const [packs, setPacks] = useState<PackSummary[]>([]);
@@ -177,11 +200,31 @@ export function App() {
    * rule packs fork.
    */
   const [reports, setReports] = useState<ReportSummary[]>(() => listReports());
-  const [reportName, setReportName] = useState<string | undefined>(() => activeReportName());
-  const [reportSpec, setReportSpec] = useState<ReportSpec>(() => {
-    const active = activeReportName();
-    return (active ? readReport(active) : undefined) ?? ZH_REPORT;
-  });
+  /**
+   * Two different names, deliberately.
+   *
+   *   reportName  — which report the *editor* is looking at
+   *   activeName  — which report the *report view* renders by default
+   *
+   * The first version kept only `reportName`, so "I opened this to look at it"
+   * and "this is the one that is in force" were the same fact. That produced two
+   * visible bugs: a built-in that was selected counted as active (its dot lit
+   * without ever being activated), and activating a built-in wrote `undefined`
+   * to the pointer — so the choice was lost on reload and the view fell back.
+   *
+   * The pointer stores a name, and `@classic` / `@default` are names like any
+   * other: `undefined` means "the editor's built-in default", and nothing else.
+   */
+  const [activeName, setActiveName] = useState<string | undefined>(() => activeReportName());
+  /** What the report view renders: the report that is *in force*. */
+  const [activeSpec, setActiveSpec] = useState<ReportSpec>(
+    () => resolveSpec(activeReportName()) ?? ZH_REPORT,
+  );
+  /** What the editor is looking at. Opening a report does not change the above. */
+  const [reportName, setReportName] = useState<string | undefined>(() => activeReportName() ?? "@default");
+  const [reportSpec, setReportSpec] = useState<ReportSpec>(
+    () => resolveSpec(activeReportName()) ?? ZH_REPORT,
+  );
   const [reportPrompt, setReportPrompt] = useState<{ kind: "create"; from: ReportSpec } | undefined>(undefined);
   const [reportToDelete, setReportToDelete] = useState<string | undefined>(undefined);
   const [reportJsonOpen, setReportJsonOpen] = useState(false);
@@ -301,25 +344,37 @@ export function App() {
 
   /* ── reports ────────────────────────────────────────────── */
 
-  /** Which built-in spec a name refers to, if any. */
-  const builtInReport = (name: string | undefined): ReportSpec | undefined =>
-    name === "@classic" ? CLASSIC_REPORT : name === undefined || name === "@default" ? ZH_REPORT : undefined;
-
-  /** Switch the report the report view renders. */
+  /** Open a report in the editor. Does not change what is in force. */
   const openReport = (name: string | undefined) => {
-    const builtIn = builtInReport(name);
-    if (builtIn) {
-      setReportName(name);
-      setReportSpec(builtIn);
-      return;
-    }
-    const stored = name ? readReport(name) : undefined;
-    if (!stored) {
+    const spec = resolveSpec(name);
+    if (!spec) {
       notify(`找不到报告「${name}」`, "error");
       return;
     }
-    setReportName(name);
-    setReportSpec(stored);
+    setReportName(name ?? "@default");
+    setReportSpec(spec);
+  };
+
+  /**
+   * Make a report the one the report view renders. Also opens it, because
+   * switching what is in force without showing it would be a surprise.
+   */
+  const activateReport = (name: string | undefined) => {
+    const spec = resolveSpec(name);
+    if (!spec) {
+      notify(`找不到报告「${name}」`, "error");
+      return;
+    }
+    // `undefined` is the pointer's "nothing chosen" state, which resolves to the
+    // built-in default. A built-in that is chosen on purpose is stored by name,
+    // so it survives a reload — this is what used to be written as `undefined`
+    // and lost.
+    setActiveReport(name);
+    setActiveName(name);
+    setActiveSpec(spec);
+    setReportName(name ?? "@default");
+    setReportSpec(spec);
+    setReports(listReports());
   };
 
   /**
@@ -331,17 +386,17 @@ export function App() {
    * document by editing it.
    */
   const persistReport = (spec: ReportSpec) => {
-    if (builtInReport(reportName)) {
+    if (isBuiltInReport(reportName) || reportName === undefined) {
       setReportPrompt({ kind: "create", from: spec });
       return;
     }
-    if (!reportName) return;
     const issues = saveReport(reportName, spec);
     if (issues.length > 0) {
       notify(`${issues.length} 处问题，已拒绝保存：${issues[0]}`, "error");
       return;
     }
     setReportSpec(spec);
+    if (activeName === reportName) setActiveSpec(spec);
     setReports(listReports());
   };
 
@@ -353,6 +408,8 @@ export function App() {
       return;
     }
     setActiveReport(name);
+    setActiveName(name);
+    setActiveSpec(spec);
     setReportName(name);
     setReportSpec(spec);
     setReports(listReports());
@@ -360,33 +417,27 @@ export function App() {
     notify(`已新建报告「${name}」`);
   };
 
-  const activateReport = (name: string | undefined) => {
-    const builtIn = builtInReport(name);
-    if (builtIn) {
-      setActiveReport(undefined);
-      setReportName(name);
-      setReportSpec(builtIn);
-    } else if (name) {
-      const stored = readReport(name);
-      if (!stored) return;
-      setActiveReport(name);
-      setReportName(name);
-      setReportSpec(stored);
-    }
-    setReports(listReports());
-  };
-
   const deleteReport = (name: string) => {
     removeReport(name);
     setReports(listReports());
     setReportToDelete(undefined);
-    if (reportName === name) activateReport(undefined);
+    if (activeName === name) {
+      // The pointer is gone with the file; fall back to the built-in default.
+      setActiveReport(undefined);
+      setActiveName(undefined);
+      setActiveSpec(ZH_REPORT);
+      setReportName("@default");
+      setReportSpec(ZH_REPORT);
+    } else if (reportName === name) {
+      setReportName("@default");
+      setReportSpec(ZH_REPORT);
+    }
     notify(`已删除报告「${name}」`);
   };
 
   /** A name that does not collide with a stored spec or a built-in. */
   const freeReportName = (base = "my-report") => {
-    const taken = new Set(reports.map((report) => report.name));
+    const taken = new Set([...reports.map((report) => report.name), ...Object.keys(BUILT_IN_REPORTS)]);
     if (!taken.has(base)) return base;
     let counter = 2;
     while (taken.has(`${base}-${counter}`)) counter += 1;
@@ -687,7 +738,7 @@ export function App() {
         packs={packs}
         packName={packName}
         metrics={metrics}
-        spec={reportSpec}
+        spec={activeSpec}
         sessions={sessionColumn}
         onSelectRun={setRunId}
         onSelectPack={(name) => void openPack(name)}
@@ -800,8 +851,8 @@ export function App() {
                 label="内置报告"
                 hint="编辑器自带的这一份"
                 count={ZH_REPORT.sections.length}
-                active={reportName === undefined || reportName === "@default"}
-                selected={reportName === undefined || reportName === "@default"}
+                active={activeName === undefined || activeName === "@default"}
+                selected={reportName === "@default"}
                 onSelect={() => openReport("@default")}
                 onActivate={() => activateReport("@default")}
               />
@@ -809,7 +860,7 @@ export function App() {
                 label="原始报告"
                 hint="Absence 的旧版布局，已写成数据"
                 count={CLASSIC_REPORT.sections.length}
-                active={false}
+                active={activeName === "@classic"}
                 selected={reportName === "@classic"}
                 onSelect={() => openReport("@classic")}
                 onActivate={() => activateReport("@classic")}
@@ -820,7 +871,7 @@ export function App() {
                   label={report.name}
                   hint={report.title || report.name}
                   count={report.sections}
-                  active={report.active}
+                  active={activeName === report.name}
                   selected={reportName === report.name}
                   issues={report.issues.length}
                   onSelect={() => openReport(report.name)}
@@ -849,7 +900,7 @@ export function App() {
                 >
                   导入文件
                 </button>
-                {reportName && !builtInReport(reportName) ? (
+                {reportName && !isBuiltInReport(reportName) ? (
                   <button
                     className="btn tiny"
                     onClick={() => downloadReport(reportName, reportSpec)}
@@ -891,7 +942,7 @@ export function App() {
             events={events}
             runId={selectedView?.run.id}
             pack={pack}
-            readOnly={builtInReport(reportName) !== undefined}
+            readOnly={isBuiltInReport(reportName)}
             onChange={persistReport}
             onOpenReport={() => setView("report")}
             onNotify={notify}
@@ -940,12 +991,12 @@ export function App() {
       {reportJsonOpen ? (
         <JsonDialog
           title={
-            reportName && !builtInReport(reportName)
+            reportName && !isBuiltInReport(reportName)
               ? `报告「${reportName}」`
               : "内置报告"
           }
           subtitle={`${reportSpec.sections.length} 个区块${
-            reportName && !builtInReport(reportName) ? "" : " · 只读，应用会先复制成一份新的报告"
+            reportName && !isBuiltInReport(reportName) ? "" : " · 只读，应用会先复制成一份新的报告"
           }`}
           value={reportSpec}
           onClose={() => setReportJsonOpen(false)}
@@ -957,7 +1008,7 @@ export function App() {
               notify(`这份报告有 ${issues.length} 处问题，已拒绝应用：${issues[0]?.path}`, "error");
               return;
             }
-            if (!reportName || builtInReport(reportName)) {
+            if (!reportName || isBuiltInReport(reportName)) {
               setReportPrompt({ kind: "create", from: spec });
               return;
             }

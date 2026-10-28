@@ -17,6 +17,10 @@ import { hashPack, mergePacks, orderedRules, validatePack, type RulePack } from 
 import { DEFAULT_PACK } from "../src/regimen/defaults.ts";
 import { EXAMPLE_PACK } from "../src/regimen/examples.ts";
 import { effectivePhase } from "../src/editor/draft.ts";
+import { liveJudge } from "../src/index.ts";
+import { buildFacts } from "../src/facts/build.ts";
+import { deriveRuns, pickRun } from "../src/facts/runs.ts";
+import { withLive } from "../src/core/live.ts";
 import { factsOf, resetEventIds, session } from "./fixtures.ts";
 import type { ChartEvent } from "../src/core/events.ts";
 
@@ -1063,6 +1067,103 @@ section("the example pack");
   check("an ordinary thought is quiet", !thoughtFires("I will read the file first"));
   // It is judged live, because the point is to speak before it happens.
   checkEqual("the content example is a live rule", effectivePhase(destructive), "live");
+}
+
+section("regimen: cooldown, and the state it needs");
+
+{
+  // `cooldownMs` reads `state.lastFired[id]`. A one-shot `evaluate` starts with
+  // an empty state, so the branch never runs — that was the bug, and this pins
+  // both halves of it.
+  const s = session();
+  s.agentStart();
+  s.command("a", 1);
+  s.command("b", 1);
+  s.agentEnd("completed");
+  const run = pickRun(deriveRuns(s.events))!;
+  const facts = buildFacts(s.events, run);
+  const at = (nowMs: number) => ({
+    facts,
+    live: withLive(facts, { nowMs }),
+    events: s.events.slice(run.fromIndex, run.toIndex + 1),
+  });
+  const t0 = facts.lastActivityAt;
+  const pack: RulePack = {
+    version: 1,
+    rules: [
+      {
+        id: "user.hot",
+        when: { conditions: [{ field: "facts.commands.failed", op: "gte", value: 1 }] },
+        emit: { level: "high", title: "fail" },
+        cooldownMs: 60_000,
+      },
+    ],
+  };
+
+  // Without a carried state the rule fires on every tick: the setting is a no-op.
+  let withoutState = 0;
+  for (const dt of [0, 1_000, 2_000]) {
+    if (evaluate(pack, at(t0 + dt)).findings.length > 0) withoutState++;
+  }
+  checkEqual("a cooldown does nothing when the state is not carried", withoutState, 3);
+
+  // Carried by hand: the second and third ticks are suppressed.
+  let state = emptyRuleState();
+  let carried = 0;
+  for (const dt of [0, 1_000, 2_000]) {
+    const result = evaluate(pack, at(t0 + dt), { state });
+    state = result.state;
+    if (result.findings.length > 0) carried++;
+  }
+  checkEqual("carrying the state by hand makes the cooldown work", carried, 1);
+
+  // And `liveJudge` is that, done for the caller.
+  const judge = liveJudge(pack);
+  let judged = 0;
+  for (const dt of [0, 1_000, 2_000]) {
+    if (judge(s.events, run, { live: { nowMs: t0 + dt } }).findings.length > 0) judged++;
+  }
+  checkEqual("liveJudge makes the cooldown work without the caller tracking state", judged, 1);
+
+  // Past the cooldown it speaks again — a cooldown is a delay, not a mute.
+  check(
+    "after the cooldown elapses the rule fires again",
+    judge(s.events, run, { live: { nowMs: t0 + 61_000 } }).findings.length > 0,
+  );
+
+  // A fresh judge is a fresh memory.
+  const fresh = liveJudge(pack);
+  check(
+    "a new judge starts with no cooldown history",
+    fresh(s.events, run, { live: { nowMs: t0 + 1_000 } }).findings.length > 0,
+  );
+}
+
+{
+  // Without a cooldown, memory changes nothing — a rule that fires every tick
+  // still does, so the mechanism cannot quietly suppress a loud rule.
+  const s = session();
+  s.agentStart();
+  s.command("a", 1);
+  s.agentEnd("completed");
+  const run = pickRun(deriveRuns(s.events))!;
+  const pack: RulePack = {
+    version: 1,
+    rules: [
+      {
+        id: "user.always",
+        when: { conditions: [{ field: "facts.commands.failed", op: "gte", value: 1 }] },
+        emit: { level: "low", title: "fail" },
+      },
+    ],
+  };
+  const judge = liveJudge(pack);
+  const t0 = buildFacts(s.events, run).lastActivityAt;
+  let fired = 0;
+  for (const dt of [0, 1_000, 2_000]) {
+    if (judge(s.events, run, { live: { nowMs: t0 + dt } }).findings.length > 0) fired++;
+  }
+  checkEqual("a rule with no cooldown fires every tick", fired, 3);
 }
 
 finish();

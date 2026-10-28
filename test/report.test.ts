@@ -473,7 +473,13 @@ section("report: every shipped template resolves");
 
   const misspelled = {
     ...spec,
-    sections: [{ ...spec.sections[0], columns: [{ header: "t", cell: "{{vars.row.toolNam}}" }] }],
+    sections: [
+      {
+        kind: "table" as const,
+        source: "facts.commandFacts",
+        columns: [{ header: "t", cell: "{{vars.row.toolNam}}" }],
+      },
+    ],
   };
   checkEqual(
     "a misspelled row field still is",

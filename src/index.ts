@@ -386,3 +386,47 @@ export { traceRule, traceWhen } from "./regimen/trace.ts";
 export { withLive, metricsFromFrames, metricsAt } from "./core/live.ts";
 export type { EggSampleLike, MetricsFrameLike } from "./core/live.ts";
 export { dryRun as judgeOnce };
+
+/* ── Live judging with memory ───────────────────────────────────────────── */
+
+/**
+ * A live judge that **holds the rule state for you**.
+ *
+ * `cooldownMs` needs `RuleState`: it is how a rule says "stay quiet for a while
+ * after I fire". The evaluator has always supported it — it reads
+ * `state.lastFired[id]` and returns the next state — but `RuleState` is the
+ * *caller's* to keep, and every host so far called `observeRun` without one. Each
+ * evaluation therefore began with an empty `lastFired`, the cooldown branch never
+ * ran, and a rule's cooldown was a setting the UI offered and the engine ignored.
+ *
+ * That is a quiet bug with a loud failure mode: the moment live judging feeds a
+ * notification channel, a rule that fires every tick rings every tick, and the
+ * only defence the language has is the thing nobody wired up.
+ *
+ * This is the wiring. A host makes one judge per stream and keeps it:
+ *
+ * ```ts
+ * let judge = liveJudge(pack);
+ * const result = judge(events, run, { live: { nowMs } });
+ * // … the next tick, same judge — cooldowns are now real.
+ * judge = liveJudge(pack);   // a new pack or a new run: start over
+ * ```
+ *
+ * It is deliberately *not* hidden inside `observeRun`: state is a property of a
+ * stream of evaluations, not of one, so a one-shot call has nowhere to put it.
+ * Making it explicit is what stops the next host from forgetting again.
+ */
+export function liveJudge(pack: RulePack = DEFAULT_PACK): LiveJudge {
+  let state = emptyRuleState();
+  return (events, run, options = {}) => {
+    const observation = judge(events, run, pack, { ...options, state }, false);
+    state = observation.state;
+    return observation;
+  };
+}
+
+export type LiveJudge = (
+  events: readonly ChartEvent[],
+  run: Run,
+  options?: ObserveOptions,
+) => Observation;

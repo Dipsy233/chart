@@ -64,11 +64,6 @@ export function EventDetail({
     onChange(copy);
   };
 
-  const remove = () => {
-    onChange(events.filter((_, position) => position !== index));
-    onSelect(index > 0 ? index - 1 : events.length > 1 ? 0 : undefined);
-  };
-
   const duplicate = () => {
     const copy = [...events];
     copy.splice(index + 1, 0, { ...structuredClone(event), timestamp: event.timestamp + 1_000 });
@@ -88,9 +83,6 @@ export function EventDetail({
         </span>
         <button className="btn tiny" onClick={duplicate} title="复制这个事件">
           复制
-        </button>
-        <button className="btn tiny ghost danger" onClick={remove} title="删除这个事件">
-          删除
         </button>
       </div>
 

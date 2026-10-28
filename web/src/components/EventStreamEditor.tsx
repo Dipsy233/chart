@@ -110,6 +110,10 @@ export function EventStreamEditor({
         selectedIndex={selectedIndex}
         onSelect={onSelectIndex}
         onMove={move}
+        onDelete={(index) => {
+          onChange(events.filter((_, position) => position !== index));
+          onSelectIndex(index > 0 ? index - 1 : events.length > 1 ? 0 : undefined);
+        }}
         header={
           <div className="pane-head">
             <span>事件 events</span>

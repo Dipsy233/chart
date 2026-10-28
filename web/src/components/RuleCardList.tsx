@@ -17,6 +17,11 @@
  * top-to-bottom at a glance. The live/settled phase is an engine detail and is
  * not shown here at all.
  *
+ * **Deleting happens here**, on the card's top-right ✕ — not in the editor
+ * beside it. One place per action: the list is where a rule lives and where it
+ * is removed, and the panel on the right is for changing one. `onDelete` is
+ * absent for a read-only pack, so the built-in has no ✕ at all.
+ *
  * Cards never grow: every line is single-line with an ellipsis, and the editor on
  * the right is where the full text lives. Nothing here shows whether a rule fired
  * — judgement belongs to the report panel.
@@ -34,11 +39,14 @@ export function RuleCardList({
   selectedId,
   onSelect,
   onMove,
+  onDelete,
 }: {
   rules: Rule[];
   selectedId: string | undefined;
   onSelect: (id: string) => void;
   onMove: (from: number, to: number) => void;
+  /** Absent for a read-only pack: the built-in has no ✕. */
+  onDelete?: (id: string) => void;
 }) {
   const sort = useDragSort(rules.length, RULE_CARD_HEIGHT, RULE_CARD_GAP, onMove);
 
@@ -52,6 +60,7 @@ export function RuleCardList({
           <div
             key={rule.id}
             className={[
+              "card",
               "rule-card",
               level,
               rule.id === selectedId ? "sel" : "",
@@ -66,6 +75,19 @@ export function RuleCardList({
             <span className="grip" {...sort.handleProps(position)} title="按住拖动，调整判读顺序">
               ⠿
             </span>
+            {onDelete ? (
+              <button
+                type="button"
+                className="card-del"
+                title={`删除规则「${rule.name ?? rule.id}」`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDelete(rule.id);
+                }}
+              >
+                ✕
+              </button>
+            ) : null}
             <div className="rule-card-main">
               <div className="rule-card-line">
                 <span className="rule-card-name">{rule.name || rule.id}</span>

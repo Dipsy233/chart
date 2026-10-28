@@ -84,14 +84,25 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 }
 .session-card .session-pick:hover { border-color: var(--line2); background: var(--panel3); }
 .session-card.sel .session-pick { border-color: var(--green-dim); background: rgba(61, 255, 158, 0.07); box-shadow: inset 2px 0 0 var(--green); }
-.session-card .card-del {
-  position: absolute; top: 4px; right: 4px;
+/* The delete affordance, shared by every card list.
+ *
+ * One shape everywhere: a card's ✕ sits at its top-right, appears on hover (and
+ * on focus, so it is reachable by keyboard), and never appears on a card that
+ * cannot be deleted — the caller decides by passing `onDelete`.
+ */
+.card-del {
+  position: absolute; top: 4px; right: 4px; z-index: 2;
   border: none; background: transparent; color: var(--dim);
   font-size: 10px; line-height: 1; padding: 2px 4px; border-radius: 4px; cursor: pointer;
   opacity: 0; transition: opacity 0.12s, color 0.12s;
 }
+.card:hover .card-del, .card:focus-within .card-del, .card-del:focus-visible { opacity: 1; }
+.card-del:hover { color: var(--high); }
+.card-del:focus-visible { outline: 1px solid var(--high); outline-offset: 1px; opacity: 1; }
+
+/* `card` is the shared marker; the three lists keep their own names for layout. */
+.session-card, .rule-card, .section-card, .event-card { position: relative; }
 .session-card:hover .card-del { opacity: 1; }
-.session-card .card-del:hover { color: var(--high); }
 
 /* ── shell ─────────────────────────────────────────────────────────────── */
 
@@ -905,3 +916,14 @@ textarea.field { resize: vertical; min-height: 46px; line-height: 1.5; }
   font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em;
   color: var(--dim);
 }
+
+/* In a single-line row the ✕ sits in the flow at the right end, not overlaid:
+   an overlay would land on the row's own text at this height. */
+.card-del.inline {
+  position: static;
+  flex: 0 0 auto;
+  opacity: 0.55;
+  font-size: 11px;
+  padding: 1px 3px;
+}
+.pack-row:hover .card-del.inline { opacity: 1; }

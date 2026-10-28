@@ -51,7 +51,7 @@ export function SessionColumn({
       </div>
       <div className="pane-body stack" style={{ gap: 4 }}>
         {subjects.map((subject) => (
-          <div key={subject.id} className={`session-card${subject.id === selectedId ? " sel" : ""}`}>
+          <div key={subject.id} className={`card session-card${subject.id === selectedId ? " sel" : ""}`}>
             <button
               className="session-pick"
               onClick={() => onSelect(subject.id)}

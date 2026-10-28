@@ -44,7 +44,6 @@ export function RuleEditor({
   readOnly,
   onFork,
   onChange,
-  onDelete,
   onDuplicate,
   onOpenReport,
   onNotify,
@@ -57,7 +56,7 @@ export function RuleEditor({
   readOnly?: boolean;
   onFork?: () => void;
   onChange: (rule: Rule) => void;
-  onDelete: () => void;
+  /** Deleting lives on the card in the list, not here — one place per action. */
   onDuplicate: () => void;
   onOpenReport: () => void;
   /** A toast hook, used by the JSON dialog. */
@@ -115,9 +114,6 @@ export function RuleEditor({
         </button>
         <button className="btn tiny" onClick={onDuplicate} title="复制一条一样的规则">
           复制
-        </button>
-        <button className="btn tiny ghost danger" onClick={onDelete} title="删除这条规则">
-          删除
         </button>
       </div>
 

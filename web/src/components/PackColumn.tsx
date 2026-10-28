@@ -155,10 +155,14 @@ function PackRow({
       <span className="pack-name">{label}</span>
       {issues ? <span className="pack-bad" title={`${issues} 处问题`}>!</span> : null}
       <span className="pack-count">{count}</span>
+      {/* The same ✕ every other card list uses, in the same place: the right end.
+          A row that cannot be deleted (the built-in, or a read-only report's
+          compact column) simply has no button. */}
       {!compact && onDelete ? (
         <button
-          className="btn tiny ghost danger"
-          title="删除这个规则包"
+          type="button"
+          className="card-del inline"
+          title={`删除规则包「${label}」`}
           onClick={(event) => {
             event.stopPropagation();
             onDelete();

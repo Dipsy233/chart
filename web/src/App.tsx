@@ -803,6 +803,15 @@ export function App() {
                 selectedId={selectedRule?.id}
                 onSelect={setSelectedRuleId}
                 onMove={moveRule}
+                // No ✕ on a read-only pack: the built-in cannot lose a rule.
+                onDelete={
+                  packName === undefined
+                    ? undefined
+                    : (id) => {
+                        const rule = pack.rules.find((candidate) => candidate.id === id);
+                        if (rule) deleteRule(rule);
+                      }
+                }
               />
             </div>
           </div>
@@ -817,7 +826,6 @@ export function App() {
               readOnly={packName === undefined}
               onFork={() => createPack()}
               onChange={updateRule}
-              onDelete={() => deleteRule(selectedRule)}
               onDuplicate={() => duplicateRule(selectedRule)}
               onOpenReport={() => setView("report")}
               onNotify={notify}

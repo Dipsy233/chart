@@ -191,6 +191,7 @@ export function ReportEditor({
             selected={selected}
             onSelect={setSelected}
             onMove={moveSection}
+            onDelete={readOnly ? undefined : removeSection}
           />
         </div>
       </div>
@@ -202,7 +203,6 @@ export function ReportEditor({
           issues={issues.filter((issue) => issue.section === selected)}
           readOnly={readOnly}
           onChange={(next) => updateSection(selected, next)}
-          onDelete={() => removeSection(selected)}
         />
       ) : (
         <div className="col rule-main">
@@ -226,11 +226,14 @@ function SectionCards({
   selected,
   onSelect,
   onMove,
+  onDelete,
 }: {
   sections: ReportSection[];
   selected: number;
   onSelect: (index: number) => void;
   onMove: (from: number, to: number) => void;
+  /** Absent for a read-only report: the built-in has no ✕. */
+  onDelete?: (index: number) => void;
 }) {
   const sort = useDragSort(sections.length, SECTION_CARD_HEIGHT, SECTION_CARD_GAP, onMove);
   return (
@@ -238,7 +241,7 @@ function SectionCards({
       {sections.map((section, index) => (
         <div
           key={index}
-          className={["rule-card", "section-card", index === selected ? "sel" : "", sort.dragging === index ? "dragging" : ""]
+          className={["card", "rule-card", "section-card", index === selected ? "sel" : "", sort.dragging === index ? "dragging" : ""]
             .filter(Boolean)
             .join(" ")}
           style={sort.itemStyle(index) as CSSProperties}
@@ -248,6 +251,19 @@ function SectionCards({
           <span className="grip" {...sort.handleProps(index)} title="按住拖动，调整顺序">
             ⠿
           </span>
+          {onDelete ? (
+            <button
+              type="button"
+              className="card-del"
+              title={`删除这个${KIND_LABEL[section.kind].label}区块`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onDelete(index);
+              }}
+            >
+              ✕
+            </button>
+          ) : null}
           <div className="rule-card-main">
             <div className="rule-card-line">
               <span className="rule-card-name">{KIND_LABEL[section.kind].label}</span>
@@ -276,14 +292,12 @@ function SectionEditor({
   issues,
   readOnly,
   onChange,
-  onDelete,
 }: {
   section: ReportSection;
   index: number;
   issues: Array<{ path: string; message: string }>;
   readOnly?: boolean;
   onChange: (section: ReportSection) => void;
-  onDelete: () => void;
 }) {
   const set = (patch: Partial<ReportSection>) => onChange({ ...section, ...patch } as ReportSection);
 
@@ -291,10 +305,6 @@ function SectionEditor({
     <div className="col rule-main">
       <div className="pane-head">
         <span>区块 {index + 1} · {KIND_LABEL[section.kind].label}</span>
-        <span className="spacer" />
-        <button className="btn tiny ghost danger" onClick={onDelete} title="删掉这个区块">
-          删除
-        </button>
       </div>
 
       <div className="pane-body rule-editor">

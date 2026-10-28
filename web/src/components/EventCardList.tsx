@@ -7,7 +7,9 @@
  *            playback cursor are dimmed, the current one is lit, and clicking a
  *            card moves the cursor there.
  *   events — editable: a grip on the left reorders the card (the list closes the
- *            gap as you drag), clicking selects it for the detail panel.
+ *            gap as you drag), clicking selects it for the detail panel, and the
+ *            card's top-right ✕ deletes it. Deleting belongs to the card, not to
+ *            the detail panel: the list is where the events live.
  *
  * Cards are a fixed height so a long payload is truncated instead of stretching
  * the column — the detail panel is where the whole event is read.
@@ -31,6 +33,7 @@ export function EventCardList({
   revealedUpTo,
   onSelect,
   onMove,
+  onDelete,
   header,
   footer,
 }: {
@@ -46,6 +49,8 @@ export function EventCardList({
   onSelect?: (index: number) => void;
   /** Reorder by displayed position; only rendered when present. */
   onMove?: (from: number, to: number) => void;
+  /** Delete by global index; only rendered when present. */
+  onDelete?: (index: number) => void;
   header?: ReactNode;
   footer?: ReactNode;
 }) {
@@ -68,6 +73,7 @@ export function EventCardList({
               <div
                 key={`${event.id}-${position}`}
                 className={[
+                  "card",
                   "event-card compact",
                   current ? "current" : "",
                   future ? "future" : "",
@@ -89,6 +95,19 @@ export function EventCardList({
                     {String(position + 1).padStart(2, "0")}
                   </span>
                 )}
+                {onDelete ? (
+                  <button
+                    type="button"
+                    className="card-del"
+                    title={`删除这个${zhEventLabel(event.type)}事件`}
+                    onClick={(clickEvent) => {
+                      clickEvent.stopPropagation();
+                      onDelete(globalIndex);
+                    }}
+                  >
+                    ✕
+                  </button>
+                ) : null}
                 <div className="card-main">
                   <div className="card-line">
                     <span className="ev-type">{zhEventLabel(event.type)}</span>

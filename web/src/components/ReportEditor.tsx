@@ -150,8 +150,15 @@ export function ReportEditor({
 
   const section = spec.sections[selected];
 
+  // Fragments, not a `view` wrapper: the host owns the grid.
+  //
+  // This used to render its own `<div className="view rules">`, and App put that
+  // inside `<div className="view reports">` — a grid inside a grid, so the outer
+  // 3-column template got 2 children and the preview was squeezed into the
+  // middle column while the rest sat empty. A component that renders columns
+  // must not also render the grid that lays them out.
   return (
-    <div className="view rules">
+    <>
       <div className="col sections-col">
         <div className="pane-head">
           <span>报告区块</span>
@@ -206,7 +213,7 @@ export function ReportEditor({
       )}
 
       <ReportPreview spec={spec} events={events} runId={runId} pack={pack} onOpenReport={onOpenReport} />
-    </div>
+    </>
   );
 }
 

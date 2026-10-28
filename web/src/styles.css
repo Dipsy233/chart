@@ -885,8 +885,13 @@ textarea.field { resize: vertical; min-height: 46px; line-height: 1.5; }
 
 /* ── the report editor ──────────────────────────────────────────────────── */
 
-/* sections | the section | the preview — the same shape as the rule view */
-.view.reports { grid-template-columns: 214px 400px minmax(0, 1fr); }
+/* reports | sections | the section | the preview.
+ *
+ * Four columns because the view has four children: the spec list, the section
+ * cards, the section form, and the live preview. `ReportEditor` renders the last
+ * three as a fragment — it must not open a grid of its own, or this template
+ * gets a nested grid and the preview collapses into the form's column. */
+.view.reports { grid-template-columns: 214px 196px 420px minmax(0, 1fr); }
 .reports-col { background: var(--panel); }
 .section-card { height: 60px; }
 .section-card .rule-card-main { gap: 2px; }

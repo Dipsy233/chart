@@ -5,10 +5,9 @@
  *   规则编辑   packs | rules (drag to reorder) | the rule
  *   事件流     runs | events | the event
  *
- * The top bar does exactly two things: switch views, and pick the 监护对象 (the
- * session being observed). Everything else — phase, anchor, demo labels, notices
- * — is gone: a control that only exists to explain the old editor is a control
- * the new one should not have.
+ * The top bar switches views. What is being observed — the 监护对象 — lives in
+ * the 事件会话 column of the report and event views now, where every session is
+ * visible at once instead of one chosen line.
  *
  * The shared state is the session's events, the selected pack, and the selected
  * run. Judgement happens only in the report view; the other two views edit data.
@@ -38,6 +37,7 @@ import { renumber } from "./lib/events.ts";
 import { pickRunView, runViews } from "./lib/runs.ts";
 import { RULE_TEMPLATES } from "./lib/plain.ts";
 import { EXAMPLE_PACK_NAME, PackColumn } from "./components/PackColumn.tsx";
+import { SessionColumn, type Subject } from "./components/SessionColumn.tsx";
 import { ConfirmDialog, PromptDialog } from "./components/PromptDialog.tsx";
 import { JsonDialog } from "./components/JsonDialog.tsx";
 import { RuleCardList } from "./components/RuleCardList.tsx";
@@ -299,6 +299,13 @@ export function App() {
 
   const selectedRule = pack.rules.find((rule) => rule.id === selectedRuleId) ?? pack.rules[0];
 
+  /** The 事件会话 column's rows: every session the editor can observe. */
+  const subjects: Subject[] = DEMOS.map((demo) => ({
+    id: demo.id,
+    label: demo.label,
+    hint: demo.description,
+  }));
+
   /* ── render ─────────────────────────────────────────────── */
 
   return (
@@ -323,24 +330,6 @@ export function App() {
         </div>
 
         <span className="spacer" />
-
-        <span className={`backend ${backend ?? "local"}`} title={backend === "api" ? "规则包存在磁盘上，和 API/agent 共享" : "规则包存在浏览器 localStorage 里；启动 npm run api 可与磁盘共享"}>
-          {backend === "api" ? "磁盘 · API" : "浏览器"}
-        </span>
-
-        <span className="label">监护对象</span>
-        <select
-          className="field subject"
-          value={demoId}
-          onChange={(event) => switchDemo(event.target.value)}
-          title={DEMOS.find((demo) => demo.id === demoId)?.description}
-        >
-          {DEMOS.map((demo) => (
-            <option key={demo.id} value={demo.id}>
-              {demo.label}
-            </option>
-          ))}
-        </select>
       </div>
 
       {/* ══ 监护报告 ═════════════════════════════════════════ */}
@@ -355,6 +344,7 @@ export function App() {
         packs={packs}
         packName={packName}
         metrics={metrics}
+        sessions={<SessionColumn subjects={subjects} selectedId={demoId} onSelect={(id) => void switchDemo(id)} />}
         onSelectRun={setRunId}
         onSelectPack={(name) => void openPack(name)}
         onActivatePack={(name) => void activatePack(name)}
@@ -456,6 +446,7 @@ export function App() {
           onSelectRun={setRunId}
           onToggleAll={() => setAllEventsMode((current) => !current)}
           onSelectIndex={setSelectedEventIndex}
+          sessions={<SessionColumn subjects={subjects} selectedId={demoId} onSelect={(id) => void switchDemo(id)} />}
         />
       ) : null}
 

@@ -72,6 +72,9 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 ::-webkit-scrollbar-thumb:hover { background: #1c4a30; background-clip: padding-box; border: 2px solid transparent; }
 ::-webkit-scrollbar-track { background: transparent; }
 
+.sessions-col .run-name { white-space: normal; line-height: 1.35; }
+.sessions-col .run-meta { white-space: normal; }
+
 /* ── shell ─────────────────────────────────────────────────────────────── */
 
 .shell { display: grid; grid-template-rows: auto 1fr; height: 100%; overflow: hidden; }
@@ -128,8 +131,8 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 
 /* every view is a row of columns; each column scrolls on its own */
 .view.rules { grid-template-columns: 196px 360px minmax(0, 1fr); }
-.view.events { grid-template-columns: 196px 322px minmax(0, 1fr); }
-.view.report-view { grid-template-columns: 196px 300px minmax(0, 1fr) 296px; }
+.view.events { grid-template-columns: 184px 196px 322px minmax(0, 1fr); }
+.view.report-view { grid-template-columns: 184px 196px 300px minmax(0, 1fr) 296px; }
 
 .col { min-height: 0; overflow-y: auto; border-right: 1px solid var(--line); background: var(--panel); }
 .col:last-child { border-right: 0; }

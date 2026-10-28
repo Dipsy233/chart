@@ -51,6 +51,8 @@ export function ReportView({
   onCreatePack,
   onSelectRule,
   onOpenEvents,
+  /** The 事件会话 column — what is being observed, rendered leftmost. */
+  sessions,
 }: {
   sessionId: string;
   /** Whether this view is on screen; the tape pauses while it is not. */
@@ -69,6 +71,7 @@ export function ReportView({
   onCreatePack: () => void;
   onSelectRule: (id: string) => void;
   onOpenEvents: () => void;
+  sessions?: React.ReactNode;
 }) {
   const view = pickRunView(views, runId);
   const total = view?.eventCount ?? 0;
@@ -124,6 +127,7 @@ export function ReportView({
 
   return (
     <div className={`view report-view${active ? "" : " hidden"}`}>
+      {sessions}
       <RunList views={views} events={events} selectedId={view?.run.id} onSelect={onSelectRun} />
 
       <EventCardList

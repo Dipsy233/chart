@@ -30,6 +30,8 @@ export function EventStreamEditor({
   onSelectRun,
   onToggleAll,
   onSelectIndex,
+  /** The 事件会话 column — what is being observed, rendered leftmost. */
+  sessions,
 }: {
   events: ChartEvent[];
   views: RunView[];
@@ -40,6 +42,8 @@ export function EventStreamEditor({
   onSelectRun: (id: string) => void;
   onToggleAll: () => void;
   onSelectIndex: (index: number | undefined) => void;
+  /** The 事件会话 column — what is being observed, rendered leftmost. */
+  sessions?: React.ReactNode;
 }) {
   const [addType, setAddType] = useState<ChartEventType>("command");
   const selectedView = pickRunView(views, runId);
@@ -87,6 +91,7 @@ export function EventStreamEditor({
 
   return (
     <div className="view events">
+      {sessions}
       <RunList
         views={views}
         events={events}

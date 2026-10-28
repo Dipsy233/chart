@@ -47,6 +47,9 @@ export function ReportView({
   metrics,
   spec,
   onSelectRun,
+  /** Pick the lens: judge this run with another pack. Selecting only — the
+   *  report never creates, deletes or activates a pack. */
+  onSelectPack,
   /** The 事件会话 column — what is being observed, rendered leftmost. */
   sessions,
 }: {
@@ -64,6 +67,7 @@ export function ReportView({
   /** The session's resource samples, if the host has a sampler. */
   metrics?: readonly MetricsFrameLike[];
   onSelectRun: (id: string) => void;
+  onSelectPack: (name: string | undefined) => void;
   sessions?: React.ReactNode;
 }) {
   const view = pickRunView(views, runId);
@@ -258,13 +262,35 @@ export function ReportView({
           <span className="tiny">{pack.rules.length} 条</span>
         </div>
         <div className="pane-body stack" style={{ gap: 8 }}>
-          {/* Read-only on purpose: this view renders a judgement, it does not
-              choose who makes it. Changing the pack is the rules view's job, and
-              a report that could re-judge itself would not be a report. */}
-          <div className="lens-name">
-            <span className="lens-pack">{packName ?? "内置默认"}</span>
+          {/*
+            * Selecting a pack is allowed; *managing* one is not.
+            *
+            * These are different verbs and they belong to different views. A pack
+            * here is a lens: "show me this same run judged by those rules" is a
+            * question a reader asks about a report, and answering it costs one
+            * dropdown. Creating a pack, deleting one and deciding which one the
+            * observer uses are the rules view's job — they change what *future*
+            * runs are judged by, which is not something a report about one past
+            * run should be able to do.
+            */}
+          <select
+            className="field"
+            value={packName ?? ""}
+            onChange={(event) => onSelectPack(event.target.value || undefined)}
+          >
+            <option value="">内置默认 · {DEFAULT_PACK.rules.length} 条</option>
+            {packs.map((summary) => (
+              <option key={summary.name} value={summary.name}>
+                {summary.name} · {summary.rules} 条{summary.active ? " · 生效中" : ""}
+              </option>
+            ))}
+          </select>
+          <div className="row">
+            <span className="spacer" />
             <span className="tiny muted">
-              {activeName === packName ? "生效中" : "不是生效的规则包"}
+              {activeName === packName
+                ? "这是观察者正在用的规则包"
+                : "试看：不是生效的规则包，判读只影响这一屏"}
             </span>
           </div>
 

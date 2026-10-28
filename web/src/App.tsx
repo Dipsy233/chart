@@ -772,6 +772,9 @@ export function App() {
         spec={activeSpec}
         sessions={sessionColumnReadOnly}
         onSelectRun={setRunId}
+        // Selecting a lens is a read; creating, deleting and activating a pack
+        // are the rules view's verbs and stay there.
+        onSelectPack={(name) => void openPack(name)}
       />
 
       {/* ══ 规则编辑 ═════════════════════════════════════════ */}
